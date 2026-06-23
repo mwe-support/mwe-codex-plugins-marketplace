@@ -2,7 +2,7 @@ name: Marketplace Auto Review
 
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, labeled]
   issue_comment:
     types: [created]
 
@@ -13,7 +13,7 @@ permissions:
 jobs:
   auto-review:
     if: >-
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'plugin-submission')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.title, 'https://github.com/') || contains(github.event.issue.body, 'https://github.com/'))) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/marketplace submit '))
     runs-on: ubuntu-latest
     steps:
@@ -27,11 +27,13 @@ jobs:
         id: extract
         env:
           EVENT_NAME: ${{ github.event_name }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
-          const body = process.env.EVENT_NAME === 'issue_comment' ? process.env.COMMENT_BODY : process.env.ISSUE_BODY;
+          const issueText = `${process.env.ISSUE_TITLE || ''}\n${process.env.ISSUE_BODY || ''}`;
+          const body = process.env.EVENT_NAME === 'issue_comment' ? process.env.COMMENT_BODY : issueText;
           const match = String(body || '').match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
           if (!match) {
             console.error('No GitHub repository URL found in submission.');

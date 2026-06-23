@@ -700,7 +700,13 @@ code {
   align-items: center;
 }
 
+.button:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
+
 .success-box,
+.error-box,
 .notice-box {
   display: grid;
   gap: 8px;
@@ -712,6 +718,12 @@ code {
   border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
   background: var(--success-soft);
   color: var(--success);
+}
+
+.error-box {
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .notice-box {
@@ -1148,7 +1160,8 @@ textarea {
 }
 
 .notice-box,
-.success-box {
+.success-box,
+.error-box {
   border-radius: var(--radius);
 }
 
@@ -1572,7 +1585,8 @@ textarea {
 }
 
 .notice-box,
-.success-box {
+.success-box,
+.error-box {
   border-radius: 6px;
 }
 

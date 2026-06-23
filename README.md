@@ -4,15 +4,17 @@
 
 ## 本地服务
 
-开发预览可以直接启动静态服务：
+开发预览可以直接启动本地 Node 服务：
 
 ```bash
-python3 -m http.server 4173
+PORT=4173 node server.mjs
 ```
 
-持久化访问使用 Docker Compose：
+持久化访问使用 Docker Compose。网页提交功能需要一个能创建 issue 的 GitHub token，可以放在 shell 环境或本地 `.env` 中：
 
 ```bash
+cp .env.example .env
+# 编辑 .env，填入 GITHUB_TOKEN
 docker compose up -d --build
 ```
 
@@ -72,7 +74,7 @@ docker compose --profile tunnel up -d --build
 
 ## 测试分享插件
 
-当前 registry 可以从空列表开始。你可以从网页 `/submit` 生成 GitHub issue；issue 创建后，GitHub Action 会按规则自动审核、同步并提交到 `main`。也可以本地模拟一条提交：
+当前 registry 可以从空列表开始。用户在网页 `/submit` 填入 GitHub 仓库链接后，站点后端会自动创建或复用追踪 issue；用户不需要跳转到 GitHub 手动创建 issue。issue 创建后，GitHub Action 会按规则自动审核、同步并提交到 `main`。也可以本地模拟一条提交：
 
 ```bash
 node scripts/marketplace.mjs submit https://github.com/owner/codex-plugin --note "插件说明" --by @alice
@@ -122,6 +124,7 @@ node scripts/test-marketplace-flow.mjs
 
 ## GitHub 集成
 
-- `.github/ISSUE_TEMPLATE/plugin-submission.yml`：用户提交插件链接的 issue 表单。
+- `server.mjs`：网页提交 API，校验 GitHub URL、去重并代创建追踪 issue。
+- `.github/ISSUE_TEMPLATE/plugin-submission.yml`：维护者兜底使用的 issue 表单。
 - `.github/workflows/marketplace-validate.yml`：PR / main 分支校验 marketplace 源文件和生成文件。
-- `.github/workflows/marketplace-submission-comment.yml`：维护者可在 issue 评论 `/marketplace submit https://github.com/owner/repo` 创建 reviewing 提交 PR。
+- `.github/workflows/marketplace-auto-review.yml`：从 issue 标题/正文或评论提取仓库链接，自动审核、同步并提交到 `main`。

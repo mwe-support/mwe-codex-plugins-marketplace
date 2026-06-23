@@ -3,7 +3,6 @@ const toast = document.querySelector("#toast");
 
 const MARKETPLACE_REPOSITORY_URL = "https://github.com/mwe-support/mwe-codex-plugins-marketplace";
 const MARKETPLACE_COMMAND = `codex plugin marketplace add ${MARKETPLACE_REPOSITORY_URL}`;
-const ISSUE_BASE = `${MARKETPLACE_REPOSITORY_URL}/issues/new`;
 
 let registry = { marketplace: {}, plugins: [] };
 let state = {
@@ -13,7 +12,10 @@ let state = {
   showOnlyVerified: false,
   submitTouched: false,
   submitLoading: false,
+  submitError: "",
   submitSuccessUrl: "",
+  submitSuccessMessage: "",
+  submitIssueNumber: "",
 };
 
 const statusLabel = {
@@ -467,7 +469,7 @@ function submitPage() {
         <section class="detail-card">
           <span class="eyebrow">${icon("git-pull-request", "提交插件")}</span>
           <h1>分享一个 Codex 插件 GitHub 仓库</h1>
-          <p class="lede">提交后会生成 GitHub issue。自动审核规则通过后，Action 会同步 registry、网页和 Codex marketplace 快照。</p>
+          <p class="lede">在这里提交仓库链接即可进入自动审核队列。系统会代你创建追踪 issue，不需要跳转到 GitHub 再手动确认。</p>
 
           <form class="form-grid detail-section" data-submit-form novalidate>
             <div class="field">
@@ -482,15 +484,20 @@ function submitPage() {
             </div>
             <div class="form-actions">
               <button class="button" type="submit" ${state.submitLoading ? "disabled" : ""}>
-                ${icon(state.submitLoading ? "loader-circle" : "send", state.submitLoading ? "正在生成 issue..." : "生成提交 issue")}
+                ${icon(state.submitLoading ? "loader-circle" : "send", state.submitLoading ? "正在提交审核..." : "提交审核")}
               </button>
               <a class="button secondary" href="/about" data-link>${icon("shield-check", "查看审核规则")}</a>
             </div>
           </form>
 
           ${
+            state.submitError
+              ? `<div class="error-box detail-section" role="alert"><strong>提交失败</strong><p>${safe(state.submitError)}</p></div>`
+              : ""
+          }
+          ${
             state.submitSuccessUrl
-              ? `<div class="success-box detail-section"><strong>提交链接已生成</strong><p>请在 GitHub 中确认内容并创建 issue，后续审核进度会在那里追踪。</p><a class="button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", "打开 GitHub issue")}</a></div>`
+              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。</p><a class="button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a></div>`
               : ""
           }
         </section>
@@ -667,30 +674,45 @@ function attachEvents() {
     render();
   });
 
-  document.querySelector("[data-submit-form]")?.addEventListener("submit", (event) => {
+  document.querySelector("[data-submit-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const repoUrl = String(form.get("repoUrl") || "").trim();
     const note = String(form.get("note") || "").trim();
     const error = validateGithubUrl(repoUrl);
     state.submitTouched = true;
+    state.submitError = "";
+    state.submitSuccessUrl = "";
+    state.submitSuccessMessage = "";
+    state.submitIssueNumber = "";
     if (error) {
       render();
       document.querySelector("#repo-url")?.focus();
       return;
     }
+
     state.submitLoading = true;
     render();
-    window.setTimeout(() => {
-      const params = new URLSearchParams({
-        title: `收录插件：${repoUrl}`,
-        body: `### GitHub 仓库\n${repoUrl}\n\n### 补充说明\n${note || "无"}\n\n### 自动检查\n- [ ] Release/tag 可访问\n- [ ] .codex-plugin/plugin.json 存在\n- [ ] manifest 字段完整\n`,
+    try {
+      const response = await fetch("/api/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoUrl, note }),
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "提交失败，请稍后重试。");
+
+      state.submitSuccessUrl = result.issueUrl || "";
+      state.submitSuccessMessage = result.message || "已提交，自动审核已进入队列。";
+      state.submitIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
+      showToast(result.duplicate ? "已有审核任务" : "已提交审核");
+    } catch (error) {
+      state.submitError = error.message || "提交失败，请稍后重试。";
+      showToast("提交失败");
+    } finally {
       state.submitLoading = false;
-      state.submitSuccessUrl = `${ISSUE_BASE}?${params.toString()}`;
       render();
-      showToast("提交链接已生成");
-    }, 700);
+    }
   });
 }
 

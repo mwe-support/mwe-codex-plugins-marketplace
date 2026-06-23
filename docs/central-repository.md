@@ -14,7 +14,7 @@ MWE Codex 插件共享市场采用“静态 registry + GitHub 审核流”的中
 
 ## 状态机
 
-1. `submit`：用户提交 GitHub URL，生成 `marketplace/submissions/<id>.json`，状态为 `reviewing`。
+1. 网页提交：用户提交 GitHub URL，`server.mjs` 调用 GitHub API 创建或复用追踪 issue。用户不需要跳转到 GitHub。
 2. `sync`：网页 registry 包含 reviewing 提交，因此列表会显示“审核中 / 待同步”。
 3. `auto-review`：Action 按规则克隆仓库、发现 `.codex-plugin/plugin.json`、验证 manifest/README/skills/mcp 路径，生成 `marketplace/plugins/<name>.json`，复制插件目录到 `marketplace/snapshots/<name>`，提交状态变为 `approved`。手动 `approve` 仍可作为兜底。
 4. `sync`：registry 中该插件变为 `verified / synced`，同时写入 `marketplace.json` 和 `.agents/plugins/marketplace.json`。
@@ -41,11 +41,12 @@ node scripts/marketplace.mjs sync
 
 ## GitHub 自动审核
 
-- Issue 表单只收集 GitHub URL 和说明。
-- `Marketplace Auto Review` Action 会从 issue 或 `/marketplace submit <url>` 评论提取仓库链接。
+- 网页表单只收集 GitHub URL 和说明，后端代创建追踪 issue。
+- Issue 表单仍保留给维护者兜底使用。
+- `Marketplace Auto Review` Action 会从 issue 标题、issue 正文或 `/marketplace submit <url>` 评论提取仓库链接。
 - Action 执行 `auto-review` 与 `sync --check`，规则通过后直接提交到 `main`。
 - 合并后网页读取 `registry/plugins.json` 展示插件；Codex 读取 `.agents/plugins/marketplace.json` 同步插件。
-- 规则失败时 Action 会在 issue 中评论失败原因，维护者可修复源仓库后重新编辑 issue 或评论命令触发。
+- 规则失败时 Action 会在 issue 中评论失败原因，维护者可修复源仓库后重新编辑 issue、添加标签或评论命令触发。
 
 ## 同步边界
 

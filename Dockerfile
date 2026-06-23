@@ -1,9 +1,10 @@
-FROM nginx:1.27-alpine
+FROM node:22-alpine
 
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
-WORKDIR /usr/share/nginx/html
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=80
 
-COPY index.html 404.html app.js styles.css marketplace.json ./
+COPY index.html 404.html app.js styles.css marketplace.json server.mjs ./
 COPY assets ./assets
 COPY registry ./registry
 COPY marketplace ./marketplace
@@ -13,4 +14,7 @@ COPY install ./install
 COPY submit ./submit
 COPY perspective ./perspective
 
-RUN chmod -R a+rX /usr/share/nginx/html
+RUN chmod -R a+rX /app
+
+EXPOSE 80
+CMD ["node", "server.mjs"]
