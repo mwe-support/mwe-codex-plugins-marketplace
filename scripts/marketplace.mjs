@@ -65,6 +65,13 @@ function readTextIfExists(file) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 }
 
+function copySnapshotDirectory(sourceDir, targetDir) {
+  fs.cpSync(sourceDir, targetDir, {
+    recursive: true,
+    filter: (source) => !path.relative(sourceDir, source).split(path.sep).includes('.git'),
+  });
+}
+
 function firstParagraph(markdown) {
   const lines = markdown.split(/\r?\n/).map((line) => line.trim());
   const useful = [];
@@ -501,7 +508,7 @@ function commandAutoReview(args) {
     const snapshotPath = normalizePathForJson(path.join('marketplace/snapshots', plugin.name));
     const snapshotDir = path.join(ROOT, snapshotPath);
     fs.rmSync(snapshotDir, { recursive: true, force: true });
-    fs.cpSync(plugin.__pluginDir, snapshotDir, { recursive: true });
+    copySnapshotDirectory(plugin.__pluginDir, snapshotDir);
     delete plugin.__pluginDir;
     plugin.source.path = snapshotPath;
     const errors = normalizePlugin(plugin);
