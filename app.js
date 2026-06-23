@@ -4,7 +4,7 @@ const toast = document.querySelector("#toast");
 const MARKETPLACE_REPOSITORY_URL = "https://github.com/mwe-support/mwe-codex-plugins-marketplace";
 const MARKETPLACE_COMMAND = `codex plugin marketplace add ${MARKETPLACE_REPOSITORY_URL}`;
 
-let registry = { marketplace: {}, plugins: [] };
+let registry = { marketplace: {}, plugins: [], submissions: [] };
 let state = {
   route: window.location.pathname,
   query: "",
@@ -16,6 +16,9 @@ let state = {
   submitSuccessUrl: "",
   submitSuccessMessage: "",
   submitIssueNumber: "",
+  reviews: [],
+  reviewsLoading: false,
+  reviewsError: "",
 };
 
 const statusLabel = {
@@ -81,14 +84,30 @@ async function copyText(value, label = "已复制") {
   }
 }
 
-function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  localStorage.setItem("marketplace-theme", theme);
-  renderIcons();
+function systemTheme() {
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function themeMode() {
+  const stored = localStorage.getItem("marketplace-theme-mode") || localStorage.getItem("marketplace-theme") || "system";
+  return ["system", "light", "dark"].includes(stored) ? stored : "system";
 }
 
 function currentTheme() {
-  return localStorage.getItem("marketplace-theme") || "dark";
+  const mode = themeMode();
+  return mode === "system" ? systemTheme() : mode;
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = currentTheme();
+  document.documentElement.dataset.themeMode = themeMode();
+}
+
+function setThemeMode(mode) {
+  localStorage.setItem("marketplace-theme-mode", mode);
+  localStorage.removeItem("marketplace-theme");
+  applyTheme();
+  render();
 }
 
 async function loadRegistry() {
@@ -97,9 +116,29 @@ async function loadRegistry() {
     registry = await response.json();
   } catch {
     showToast("Registry 加载失败，正在显示空状态");
-    registry = { marketplace: {}, plugins: [] };
+    registry = { marketplace: {}, plugins: [], submissions: [] };
   }
+  state.reviews = registry.submissions || [];
   render();
+  loadReviewItems();
+}
+
+async function loadReviewItems() {
+  state.reviewsLoading = true;
+  state.reviewsError = "";
+  if (state.route.startsWith("/reviews")) render();
+  try {
+    const response = await fetch("/api/submissions", { cache: "no-store" });
+    const payload = await response.json();
+    state.reviews = payload.submissions || registry.submissions || [];
+    state.reviewsError = payload.warning || "";
+  } catch (error) {
+    state.reviews = registry.submissions || [];
+    state.reviewsError = error.message || "审核进度加载失败";
+  } finally {
+    state.reviewsLoading = false;
+    if (state.route.startsWith("/reviews")) render();
+  }
 }
 
 function categories() {
@@ -125,6 +164,34 @@ function filteredPlugins() {
     const matchesVerified = !state.showOnlyVerified || plugin.verifiedStatus === "verified";
     return matchesQuery && matchesCategory && matchesVerified;
   });
+}
+
+const reviewStatusLabel = {
+  reviewing: "待审核",
+  approved: "已同步",
+  rejected: "已拒绝",
+  failed: "需处理",
+  closed: "已关闭",
+};
+
+function reviewItems() {
+  return (state.reviews.length ? state.reviews : registry.submissions || []).slice().sort((a, b) => new Date(b.updatedAt || b.submittedAt) - new Date(a.updatedAt || a.submittedAt));
+}
+
+function reviewColumnItems(statuses) {
+  return reviewItems().filter((item) => statuses.includes(item.status));
+}
+
+function reviewBadge(status) {
+  const iconName = status === "approved" ? "badge-check" : status === "failed" || status === "rejected" ? "triangle-alert" : "clock-3";
+  return `<span class="review-status ${safe(status)}">${icon(iconName, reviewStatusLabel[status] || status)}</span>`;
+}
+
+function securityScanBadge(scan) {
+  const status = scan?.status || "pending";
+  const label = status === "passed" ? "安全扫描通过" : status === "warnings" ? "安全扫描提醒" : status === "blocked" ? "安全扫描阻断" : "等待安全扫描";
+  const iconName = status === "passed" ? "shield-check" : status === "blocked" ? "shield-alert" : "shield-question";
+  return `<span class="security-badge ${safe(status)}">${icon(iconName, label)}</span>`;
 }
 
 function statusBadge(type, value) {
@@ -154,9 +221,10 @@ function pluginCopyActions(plugin, variant = "card") {
 }
 
 function header() {
-  const theme = currentTheme();
+  const mode = themeMode();
   const navItems = [
     ["/", "store", "市场"],
+    ["/reviews", "list-checks", "进度"],
     ["/submit", "git-pull-request", "提交"],
     ["/install", "download", "安装"],
     ["/about", "shield-check", "规则"],
@@ -181,11 +249,19 @@ function header() {
             .join("")}
         </nav>
         <div class="top-actions">
-          <button class="icon-button" type="button" data-theme-toggle aria-label="${
-            theme === "dark" ? "切换到浅色模式" : "切换到暗色模式"
-          }">
-            ${icon(theme === "dark" ? "sun" : "moon")}
-          </button>
+          <div class="theme-switch" role="group" aria-label="主题模式">
+            ${[
+              ["system", "monitor", "跟随系统"],
+              ["light", "sun", "浅色"],
+              ["dark", "moon", "深色"],
+            ]
+              .map(
+                ([value, iconName, label]) => `
+                  <button class="theme-option" type="button" data-theme-mode="${value}" aria-pressed="${mode === value}" aria-label="${label}">${icon(iconName)}</button>
+                `
+              )
+              .join("")}
+          </div>
           <a class="button secondary" href="/install" data-link>${icon("monitor", "Codex Desktop")}</a>
         </div>
       </div>
@@ -195,7 +271,7 @@ function header() {
 
 function topLevelRoute() {
   if (state.route.startsWith("/plugins/") || state.route.startsWith("/perspective")) return "/";
-  return ["/submit", "/install", "/about"].find((route) => state.route.startsWith(route)) || "/";
+  return ["/reviews", "/submit", "/install", "/about"].find((route) => state.route.startsWith(route)) || "/";
 }
 
 function emptyState() {
@@ -318,6 +394,82 @@ function perspectivePage() {
                 : `<div class="glass-card perspective-empty">${emptyState()}</div>`
             }
           </div>
+        </section>
+      </main>
+    </div>
+  `;
+}
+
+function reviewCard(item) {
+  const scan = item.securityScan;
+  const issueLabel = item.issueUrl ? `#${item.issueUrl.split("/").pop()}` : "追踪";
+  return `
+    <article class="review-card glass-card">
+      <div class="review-card-head">
+        <div>
+          <h3>${safe(item.displayName || item.repo || item.slug)}</h3>
+          <p>${safe(item.owner || "community")} / ${safe(item.repo || item.slug)}</p>
+        </div>
+        ${reviewBadge(item.status)}
+      </div>
+      <a class="review-repo" href="${safe(item.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", item.repositoryUrl || "GitHub 仓库")}</a>
+      <div class="review-meta">
+        <span>${icon("calendar-clock", formatShanghaiDateTime(item.updatedAt || item.submittedAt))}</span>
+        ${securityScanBadge(scan)}
+      </div>
+      ${item.reason ? `<p class="review-reason">${safe(item.reason)}</p>` : ""}
+      ${scan?.findings?.length ? `<ul class="review-findings">${scan.findings.slice(0, 3).map((finding) => `<li><strong>${safe(finding.severity)}</strong> ${safe(finding.path)} · ${safe(finding.description)}</li>`).join("")}</ul>` : ""}
+      <div class="form-actions">
+        ${item.issueUrl ? `<a class="perspective-button secondary" href="${safe(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("external-link", issueLabel)}</a>` : ""}
+        ${item.pluginName ? `<a class="perspective-button primary" href="/plugins/${safe(item.pluginName)}" data-link>${icon("arrow-right", "查看插件")}</a>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function reviewColumn(title, statuses, iconName) {
+  const items = reviewColumnItems(statuses);
+  return `
+    <section class="review-column">
+      <div class="review-column-head">
+        <span>${icon(iconName)}</span>
+        <div>
+          <h2>${title}</h2>
+          <p>${items.length} 条记录</p>
+        </div>
+      </div>
+      <div class="review-column-list">
+        ${items.length ? items.map(reviewCard).join("") : `<div class="review-empty">暂无记录</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function reviewsPage() {
+  const total = reviewItems().length;
+  return `
+    <div class="perspective-app">
+      ${header()}
+      <main id="main" class="perspective-page review-page" aria-label="提交和审核进度">
+        <section class="review-hero glass-card">
+          <span class="perspective-kicker">Review Board</span>
+          <div>
+            <h1>提交和审核进度</h1>
+            <p>从网页提交、GitHub issue、自动审核、静态安全扫描到 Marketplace 同步，所有状态集中显示在这里。</p>
+          </div>
+          <button class="perspective-button secondary" type="button" data-refresh-reviews ${state.reviewsLoading ? "disabled" : ""}>${icon(state.reviewsLoading ? "loader-circle" : "refresh-cw", state.reviewsLoading ? "刷新中" : "刷新进度")}</button>
+        </section>
+        ${state.reviewsError ? `<div class="error-box review-warning" role="status">${safe(state.reviewsError)}</div>` : ""}
+        <section class="review-summary" aria-label="审核概况">
+          <div class="glass-card"><strong>${total}</strong><span>提交记录</span></div>
+          <div class="glass-card"><strong>${reviewColumnItems(["approved"]).length}</strong><span>已同步</span></div>
+          <div class="glass-card"><strong>${reviewColumnItems(["reviewing"]).length}</strong><span>审核中</span></div>
+          <div class="glass-card"><strong>${reviewColumnItems(["failed", "rejected"]).length}</strong><span>需处理</span></div>
+        </section>
+        <section class="review-board" aria-label="审核看板">
+          ${reviewColumn("待审核", ["reviewing"], "clock-3")}
+          ${reviewColumn("需处理", ["failed", "rejected", "closed"], "triangle-alert")}
+          ${reviewColumn("已同步", ["approved"], "badge-check")}
         </section>
       </main>
     </div>
@@ -508,7 +660,8 @@ function submitPage() {
             <div class="timeline">
               ${timelineItem("file-json", "Manifest", "检查 name、version、author、interface、capabilities 字段。")}
               ${timelineItem("tag", "Release/tag", "优先使用指定 ref；没有 Release 时可同步默认分支快照。")}
-              ${timelineItem("shield-check", "安全边界", "不执行提交仓库中的插件代码。")}
+              ${timelineItem("shield-check", "安全扫描", "静态检查高危命令、安装钩子和密钥外传风险。")}
+              ${timelineItem("shield", "执行边界", "审核不会执行提交仓库中的插件代码。")}
             </div>
           </section>
         </aside>
@@ -582,7 +735,7 @@ function aboutPage() {
 
         <div class="detail-section">
           <h2>不会做</h2>
-          <p>审核 Action 不会执行插件代码；只在 manifest、README、skills/mcp 路径等规则通过后自动同步。</p>
+          <p>审核 Action 不会执行插件代码；只做 manifest、README、skills/mcp 路径校验，并增加静态安全扫描。明显危险的远程脚本执行、根目录删除、磁盘擦除等规则会阻断自动同步，可疑安装钩子会进入看板提醒。</p>
         </div>
       </section>
     </main>
@@ -603,6 +756,7 @@ function render() {
   const path = state.route;
   let view = perspectivePage();
   if (path.startsWith("/plugins/")) view = detailPage(decodeURIComponent(path.split("/").filter(Boolean).pop() || ""));
+  if (path.startsWith("/reviews")) view = reviewsPage();
   if (path.startsWith("/submit")) view = submitPage();
   if (path.startsWith("/install")) view = installPage();
   if (path.startsWith("/about")) view = aboutPage();
@@ -630,9 +784,16 @@ function attachEvents() {
     });
   });
 
-  document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
-    setTheme(currentTheme() === "dark" ? "light" : "dark");
-    showToast(currentTheme() === "dark" ? "已切换到暗色模式" : "已切换到浅色模式");
+  document.querySelectorAll("[data-theme-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setThemeMode(button.dataset.themeMode);
+      const label = button.dataset.themeMode === "system" ? "跟随系统" : button.dataset.themeMode === "light" ? "浅色模式" : "深色模式";
+      showToast(`主题已切换为${label}`);
+    });
+  });
+
+  document.querySelector("[data-refresh-reviews]")?.addEventListener("click", () => {
+    loadReviewItems();
   });
 
   document.querySelector("#plugin-search")?.addEventListener("input", (event) => {
@@ -705,6 +866,7 @@ function attachEvents() {
       state.submitSuccessUrl = result.issueUrl || "";
       state.submitSuccessMessage = result.message || "已提交，自动审核已进入队列。";
       state.submitIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
+      loadReviewItems();
       showToast(result.duplicate ? "已有审核任务" : "已提交审核");
     } catch (error) {
       state.submitError = error.message || "提交失败，请稍后重试。";
@@ -747,4 +909,12 @@ window.addEventListener("popstate", () => {
   render();
 });
 
+window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
+  if (themeMode() === "system") {
+    applyTheme();
+    render();
+  }
+});
+
+applyTheme();
 loadRegistry();

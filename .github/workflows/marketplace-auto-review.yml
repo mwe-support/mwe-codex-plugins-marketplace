@@ -2,13 +2,17 @@ name: Marketplace Auto Review
 
 on:
   issues:
-    types: [opened, edited, labeled]
+    types: [opened, edited]
   issue_comment:
     types: [created]
 
 permissions:
   contents: write
   issues: write
+
+concurrency:
+  group: marketplace-auto-review-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   auto-review:
@@ -74,7 +78,7 @@ jobs:
           CHANGED: ${{ steps.commit.outputs.changed }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "自动审核通过并已同步 Marketplace。提交仓库：$SUBMISSION_URL；是否产生新提交：${CHANGED:-unknown}。"
+            gh issue comment "$ISSUE_NUMBER" --body "自动审核通过并已同步 Marketplace。提交仓库：$SUBMISSION_URL；静态安全扫描已完成；是否产生新提交：${CHANGED:-unknown}。"
           else
-            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。请检查仓库是否包含有效的 .codex-plugin/plugin.json、README、skills/mcp 路径和 SemVer 版本。"
+            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。请检查仓库是否包含有效的 .codex-plugin/plugin.json、README、skills/mcp 路径、SemVer 版本，并确认静态安全扫描没有命中高危规则。"
           fi

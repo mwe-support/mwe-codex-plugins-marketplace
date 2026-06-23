@@ -111,6 +111,68 @@ function validateSourcePlugin(plugin, pluginDir) {
   return errors;
 }
 
+const SECURITY_TEXT_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.yaml', '.yml', '.sh', '.bash', '.zsh', '.ps1', '.py', '.rb', '.go', '.rs', '.toml', '.md']);
+
+const SECURITY_PATTERNS = [
+  { id: 'remote-shell-pipe', severity: 'critical', description: '远程脚本直接管道到 shell 执行', pattern: /\b(curl|wget)\b[^\n|;]*(https?:\/\/)[^\n|;]*\|\s*(bash|sh|zsh|fish|pwsh|powershell)\b/i },
+  { id: 'destructive-root-delete', severity: 'critical', description: '包含高危根目录删除命令', pattern: /\brm\s+-rf\s+(\/|~|\$HOME)(\s|$)/i },
+  { id: 'disk-destructive-command', severity: 'critical', description: '包含磁盘擦除或格式化类命令', pattern: /\b(mkfs|dd\s+if=|diskpart|format\s+[A-Z]:|sdelete)\b/i },
+  { id: 'privilege-shell-install', severity: 'high', description: '安装脚本中包含提权或系统级写入动作', pattern: /\b(sudo|chmod\s+777|chown\s+-R|setenforce\s+0)\b/i },
+  { id: 'dynamic-code-execution', severity: 'medium', description: '存在动态代码执行，需要人工复核上下文', pattern: /\b(eval|new Function|child_process\.(exec|execSync)|subprocess\.(Popen|run|call))\s*\(/ },
+  { id: 'secret-network-use', severity: 'medium', description: '代码同时读取常见密钥环境变量并进行网络访问', pattern: /(GITHUB_TOKEN|GH_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_SECRET_ACCESS_KEY|NPM_TOKEN)[\s\S]{0,500}\b(fetch|axios|curl|request|https\.request)\b/i },
+];
+
+function isSecurityScannableFile(file) {
+  const relative = normalizePathForJson(path.relative(ROOT, file));
+  if (relative.includes('/node_modules/') || relative.includes('/.git/')) return false;
+  const extension = path.extname(file).toLowerCase();
+  return SECURITY_TEXT_EXTENSIONS.has(extension);
+}
+
+function scanPluginSecurity(pluginDir) {
+  const findings = [];
+  for (const file of walkFiles(pluginDir)) {
+    if (!isSecurityScannableFile(file)) continue;
+    const stat = fs.statSync(file);
+    if (stat.size > 1024 * 1024) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    const relativePath = normalizePathForJson(path.relative(pluginDir, file));
+    for (const rule of SECURITY_PATTERNS) {
+      if (rule.pattern.test(content)) {
+        findings.push({ id: rule.id, severity: rule.severity, path: relativePath, description: rule.description });
+      }
+    }
+  }
+
+  const packageFile = path.join(pluginDir, 'package.json');
+  if (fs.existsSync(packageFile)) {
+    try {
+      const packageJson = readJson(packageFile);
+      for (const scriptName of ['preinstall', 'install', 'postinstall', 'prepare']) {
+        const script = packageJson.scripts?.[scriptName];
+        if (!script) continue;
+        const suspicious = SECURITY_PATTERNS.find((rule) => rule.pattern.test(script));
+        findings.push({
+          id: suspicious ? suspicious.id : 'install-lifecycle-script',
+          severity: suspicious?.severity || 'medium',
+          path: 'package.json',
+          description: suspicious ? '生命周期脚本 ' + scriptName + ': ' + suspicious.description : '包含 npm 生命周期脚本 ' + scriptName + '，需要人工留意安装时行为',
+        });
+      }
+    } catch (error) {
+      findings.push({ id: 'package-json-parse', severity: 'medium', path: 'package.json', description: 'package.json 无法解析：' + error.message });
+    }
+  }
+
+  const blocked = findings.some((finding) => finding.severity === 'critical');
+  return {
+    status: blocked ? 'blocked' : findings.length ? 'warnings' : 'passed',
+    blocked,
+    scannedAt: now(),
+    findings,
+  };
+}
+
 function discoverSourcePlugins(repoDir, repo, args = {}) {
   const manifestFiles = walkFiles(repoDir).filter((file) => normalizePathForJson(path.relative(repoDir, file)).endsWith('.codex-plugin/plugin.json'));
   if (!manifestFiles.length) throw new Error('自动审核失败：没有找到 .codex-plugin/plugin.json');
@@ -122,6 +184,11 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
     const readme = readTextIfExists(path.join(pluginDir, 'README.md'));
     const errors = validateSourcePlugin(manifest, pluginDir);
     if (errors.length) throw new Error('自动审核失败：' + relativePluginDir + '\n- ' + errors.join('\n- '));
+    const securityScan = scanPluginSecurity(pluginDir);
+    if (securityScan.blocked) {
+      const summary = securityScan.findings.map((finding) => `${finding.severity} ${finding.id} at ${finding.path}: ${finding.description}`).join('\n- ');
+      throw new Error('安全扫描未通过：' + relativePluginDir + '\n- ' + summary);
+    }
     const iface = manifest.interface || {};
     const ref = args.ref || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoDir }) || 'main';
     const timestamp = now();
@@ -153,6 +220,7 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
         manifestPath,
       },
       __pluginDir: pluginDir,
+      securityScan,
       review: {
         status: 'approved',
         reviewedAt: timestamp,
@@ -163,6 +231,7 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
           '.codex-plugin/plugin.json discovered',
           'manifest identity, version, interface and capability fields valid',
           'README and declared skills/mcp paths present',
+          securityScan.status === 'passed' ? 'security scan passed' : 'security scan completed with warnings',
         ],
       },
     };
@@ -293,6 +362,7 @@ function submissionToRegistryPlugin(submission) {
     installPolicy: 'REVIEW_ONLY',
     source: { type: 'pending', path: null },
     featured: false,
+    review: submission.review || null,
   };
 }
 
@@ -316,6 +386,31 @@ function pluginSourceToRegistry(plugin) {
     installPolicy: plugin.installPolicy || 'AVAILABLE',
     source: plugin.source || { type: 'local-snapshot', url: plugin.repositoryUrl, ref: plugin.releaseTag, path: '.', manifestPath: '.codex-plugin/plugin.json' },
     featured: Boolean(plugin.featured),
+    review: plugin.review || null,
+    securityScan: plugin.securityScan || plugin.review?.securityScan || null,
+  };
+}
+
+function submissionToReviewItem(submission) {
+  const plugin = listJson(PLUGIN_DIR).map(readJson).find((item) => item.repositoryUrl === submission.repositoryUrl || item.name === submission.slug);
+  return {
+    id: submission.id,
+    slug: submission.slug,
+    owner: submission.owner,
+    repo: submission.repo,
+    displayName: plugin?.displayName || titleFromRepo(submission.repo),
+    repositoryUrl: submission.repositoryUrl,
+    issueUrl: submission.review?.issueUrl || null,
+    status: submission.status,
+    submittedAt: submission.submittedAt,
+    updatedAt: submission.updatedAt || submission.submittedAt,
+    reviewer: submission.review?.reviewer || null,
+    decision: submission.review?.decision || null,
+    reason: submission.review?.reason || null,
+    pluginName: plugin?.name || null,
+    verifiedStatus: plugin?.verifiedStatus || (submission.status === 'approved' ? 'verified' : 'reviewing'),
+    syncStatus: plugin?.syncStatus || (submission.status === 'approved' ? 'synced' : 'pending'),
+    securityScan: plugin?.securityScan || submission.review?.securityScan || null,
   };
 }
 
@@ -339,6 +434,7 @@ function buildRegistry(generatedAt = now()) {
       lastUpdated: generatedAt,
     },
     plugins: registryPlugins,
+    submissions: submissions.map(submissionToReviewItem).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)),
   };
 }
 
@@ -521,6 +617,9 @@ function commandAutoReview(args) {
   submission.updatedAt = timestamp;
   submission.review = {
     ...submission.review,
+    securityScan: plugins.some((plugin) => plugin.securityScan?.status === 'warnings')
+      ? { status: 'warnings', findings: plugins.flatMap((plugin) => plugin.securityScan?.findings || []) }
+      : { status: 'passed', findings: [] },
     reviewer: args.by || 'marketplace-bot',
     decision: 'approved',
     reason: 'auto-approved ' + plugins.length + ' plugin(s): ' + plugins.map((plugin) => plugin.name).join(', '),

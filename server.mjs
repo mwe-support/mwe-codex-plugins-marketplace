@@ -11,7 +11,7 @@ const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 5);
 
 const allowedFiles = new Set(['index.html', '404.html', 'app.js', 'styles.css', 'marketplace.json']);
-const allowedDirs = new Set(['assets', 'registry', 'marketplace', '.agents', 'about', 'install', 'submit', 'perspective']);
+const allowedDirs = new Set(['assets', 'registry', 'marketplace', '.agents', 'about', 'install', 'submit', 'perspective', 'reviews']);
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
@@ -145,6 +145,84 @@ function truncateNote(value) {
   return note.length > 4000 ? `${note.slice(0, 4000)}\n\n[说明已截断]` : note;
 }
 
+async function readLocalJson(relativePath, fallback) {
+  try {
+    const content = await fs.readFile(path.join(ROOT, relativePath), 'utf8');
+    return JSON.parse(content);
+  } catch {
+    return fallback;
+  }
+}
+
+function extractRepositoryUrlFromIssue(issue) {
+  const text = `${issue.title || ''}\n${issue.body || ''}`;
+  const match = text.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
+  return match ? match[0].replace(/\.git$/, '') : '';
+}
+
+function reviewStatusFromIssue(issue, comments = []) {
+  const commentText = comments.map((comment) => comment.body || '').join('\n');
+  if (/自动审核通过/.test(commentText)) return 'approved';
+  if (/自动审核未通过|安全扫描未通过/.test(commentText)) return 'failed';
+  if (issue.state === 'closed') return 'closed';
+  return 'reviewing';
+}
+
+function localSubmissionMap(registry) {
+  const map = new Map();
+  for (const item of registry.submissions || []) {
+    if (item.repositoryUrl) map.set(item.repositoryUrl.replace(/\.git$/, ''), item);
+  }
+  return map;
+}
+
+async function listSubmissionProgress() {
+  const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
+  const localByRepo = localSubmissionMap(registry);
+  const items = new Map();
+
+  for (const item of registry.submissions || []) {
+    items.set(item.repositoryUrl.replace(/\.git$/, ''), { ...item, source: 'registry' });
+  }
+
+  if (API_TOKEN) {
+    const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
+    for (const issue of Array.isArray(issues) ? issues : []) {
+      if (issue.pull_request) continue;
+      const repositoryUrl = extractRepositoryUrlFromIssue(issue);
+      const labelNames = (issue.labels || []).map((label) => label.name);
+      if (!repositoryUrl && !labelNames.includes('plugin-submission')) continue;
+      const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
+      const local = repositoryUrl ? localByRepo.get(repositoryUrl) : null;
+      const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
+      const status = local?.status === 'approved' ? 'approved' : issueStatus;
+      const latestActionComment = [...(comments || [])].reverse().find((comment) => comment.user?.login === 'github-actions');
+      const repoParts = repositoryUrl ? repositoryUrl.split('/').slice(-2) : [];
+      items.set(repositoryUrl || issue.html_url, {
+        id: local?.id || `issue-${issue.number}`,
+        slug: local?.slug || repoParts.join('-') || `issue-${issue.number}`,
+        owner: local?.owner || repoParts[0] || 'unknown',
+        repo: local?.repo || repoParts[1] || issue.title,
+        displayName: local?.displayName || repoParts[1] || issue.title,
+        repositoryUrl: repositoryUrl || local?.repositoryUrl || '',
+        issueUrl: issue.html_url,
+        status,
+        submittedAt: local?.submittedAt || issue.created_at,
+        updatedAt: local?.updatedAt || issue.updated_at,
+        decision: local?.decision || (status === 'approved' ? 'approved' : status === 'failed' ? 'failed' : null),
+        reason: local?.reason || latestActionComment?.body || '',
+        pluginName: local?.pluginName || null,
+        verifiedStatus: local?.verifiedStatus || (status === 'approved' ? 'verified' : 'reviewing'),
+        syncStatus: local?.syncStatus || (status === 'approved' ? 'synced' : status === 'failed' ? 'failed' : 'pending'),
+        securityScan: local?.securityScan || null,
+        source: local ? 'registry+github' : 'github',
+      });
+    }
+  }
+
+  return [...items.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
 async function createSubmissionIssue({ repositoryUrl, note }) {
   if (!API_TOKEN) {
     throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建审核 issue。');
@@ -201,8 +279,17 @@ async function createSubmissionIssue({ repositoryUrl, note }) {
 }
 
 async function handleSubmission(request, response) {
+  if (request.method === 'GET') {
+    try {
+      sendJson(response, 200, { submissions: await listSubmissionProgress() });
+    } catch (error) {
+      const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
+      sendJson(response, 200, { submissions: registry.submissions || [], warning: error.message });
+    }
+    return;
+  }
   if (request.method !== 'POST') {
-    response.writeHead(405, { Allow: 'POST' });
+    response.writeHead(405, { Allow: 'GET, POST' });
     response.end();
     return;
   }

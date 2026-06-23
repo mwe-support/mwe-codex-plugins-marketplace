@@ -13,6 +13,7 @@ COPY about ./about
 COPY install ./install
 COPY submit ./submit
 COPY perspective ./perspective
+COPY reviews ./reviews
 
 RUN chmod -R a+rX /app
 

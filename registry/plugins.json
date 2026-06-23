@@ -4,7 +4,7 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-23T17:30:18.146Z"
+    "lastUpdated": "2026-06-23T17:49:06.188Z"
   },
   "plugins": [
     {
@@ -37,7 +37,20 @@
         "upstreamPath": "plugins/codex/context7",
         "manifestPath": ".codex-plugin/plugin.json"
       },
-      "featured": false
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-23T17:30:13.002Z",
+        "reviewer": "@mwe-support",
+        "method": "auto-rules",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present"
+        ]
+      },
+      "securityScan": null
     },
     {
       "name": "cowart",
@@ -73,7 +86,20 @@
         "upstreamPath": ".",
         "manifestPath": ".codex-plugin/plugin.json"
       },
-      "featured": false
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-23T16:56:59.483Z",
+        "reviewer": "@mwe-support",
+        "method": "auto-rules",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present"
+        ]
+      },
+      "securityScan": null
     },
     {
       "name": "email-protocols-rust",
@@ -106,7 +132,79 @@
         "upstreamPath": "plugins/email-protocols-rust",
         "manifestPath": ".codex-plugin/plugin.json"
       },
-      "featured": false
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-23T16:22:19.716Z",
+        "reviewer": "@mwe-support",
+        "method": "auto-rules",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present"
+        ]
+      },
+      "securityScan": null
+    }
+  ],
+  "submissions": [
+    {
+      "id": "upstash-context7-b88e00bc12",
+      "slug": "upstash-context7",
+      "owner": "upstash",
+      "repo": "context7",
+      "displayName": "Context7",
+      "repositoryUrl": "https://github.com/upstash/context7",
+      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/2",
+      "status": "approved",
+      "submittedAt": "2026-06-23T17:30:11.935Z",
+      "updatedAt": "2026-06-23T17:30:13.005Z",
+      "reviewer": "@mwe-support",
+      "decision": "approved",
+      "reason": "auto-approved 1 plugin(s): context7",
+      "pluginName": "context7",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "securityScan": null
+    },
+    {
+      "id": "zhongerxin-cowart-54fca25df8",
+      "slug": "zhongerxin-cowart",
+      "owner": "zhongerxin",
+      "repo": "cowart",
+      "displayName": "Cowart",
+      "repositoryUrl": "https://github.com/zhongerxin/cowart",
+      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/1",
+      "status": "approved",
+      "submittedAt": "2026-06-23T16:56:58.736Z",
+      "updatedAt": "2026-06-23T16:56:59.496Z",
+      "reviewer": "@mwe-support",
+      "decision": "approved",
+      "reason": "auto-approved 1 plugin(s): cowart",
+      "pluginName": "cowart",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "securityScan": null
+    },
+    {
+      "id": "mwe-support-mwe-codex-email-protocols-plugin-a0876a7b6f",
+      "slug": "mwe-support-mwe-codex-email-protocols-plugin",
+      "owner": "mwe-support",
+      "repo": "mwe-codex-email-protocols-plugin",
+      "displayName": "Email Protocols Rust Preview",
+      "repositoryUrl": "https://github.com/mwe-support/mwe-codex-email-protocols-plugin",
+      "issueUrl": null,
+      "status": "approved",
+      "submittedAt": "2026-06-23T16:22:17.093Z",
+      "updatedAt": "2026-06-23T16:22:19.719Z",
+      "reviewer": "@mwe-support",
+      "decision": "approved",
+      "reason": "auto-approved 1 plugin(s): email-protocols-rust",
+      "pluginName": "email-protocols-rust",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "securityScan": null
     }
   ]
 }
