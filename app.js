@@ -135,6 +135,22 @@ function tagList(items) {
   return (items || []).map((item) => `<span class="badge">${safe(item)}</span>`).join("");
 }
 
+function pluginInstallCommand(plugin) {
+  return `codex plugin add ${plugin.name}@${registry.marketplace.name || "codex-community"}`;
+}
+
+function pluginCopyActions(plugin, variant = "card") {
+  if (plugin.verifiedStatus !== "verified" || plugin.installPolicy === "REVIEW_ONLY") {
+    return `<span class="install-note">通过审核后开放单独安装</span>`;
+  }
+  const installCommand = pluginInstallCommand(plugin);
+  const buttonClass = variant === "perspective" ? "perspective-button secondary" : "button secondary";
+  return `
+    <button class="${buttonClass}" type="button" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="插件 GitHub 链接已复制" aria-label="复制 ${safe(plugin.displayName)} GitHub 仓库链接">${icon("github", "复制链接")}</button>
+    <button class="${buttonClass}" type="button" data-copy="${safe(installCommand)}" data-copy-label="插件安装命令已复制" aria-label="复制 ${safe(plugin.displayName)} CLI 安装命令">${icon("terminal", "复制安装")}</button>
+  `;
+}
+
 function header() {
   const theme = currentTheme();
   const navItems = [
@@ -178,146 +194,6 @@ function header() {
 function topLevelRoute() {
   if (state.route.startsWith("/plugins/") || state.route.startsWith("/perspective")) return "/";
   return ["/submit", "/install", "/about"].find((route) => state.route.startsWith(route)) || "/";
-}
-
-function homePage() {
-  const plugins = filteredPlugins();
-  const verifiedCount = registry.plugins.filter((plugin) => plugin.verifiedStatus === "verified").length;
-  const categoriesCount = categories().length - 1;
-  return `
-    ${header()}
-    <main id="main" class="page">
-      <div class="workspace-grid">
-        <section>
-          <div class="page-heading">
-            <span class="eyebrow">${icon("sparkles", "Community Marketplace")}</span>
-            <h1>发现、审核并安装社区维护的 Codex 插件</h1>
-            <p class="lede">搜索插件能力、查看同步状态，并把这个 GitHub Marketplace 添加到 Codex Desktop。</p>
-          </div>
-
-          <div class="panel search-panel" aria-label="插件搜索与筛选">
-            <div class="search-row">
-              <div class="field">
-                <label for="plugin-search">搜索插件</label>
-                <div class="input-shell">
-                  ${icon("search")}
-                  <input id="plugin-search" value="${safe(state.query)}" placeholder="搜索 GitHub、设计、数据、文档..." autocomplete="off" />
-                </div>
-              </div>
-              <button class="button secondary" type="button" data-verified-toggle aria-pressed="${state.showOnlyVerified}">
-                ${icon("badge-check", state.showOnlyVerified ? "显示全部" : "仅看已验证")}
-              </button>
-            </div>
-            <div class="tabs" role="tablist" aria-label="插件分类">
-              ${categories()
-                .map(
-                  (category) => `
-                    <button class="tab-button" type="button" role="tab" data-category="${safe(category)}" aria-selected="${
-                      state.category === category
-                    }">${safe(category)}</button>
-                  `
-                )
-                .join("")}
-            </div>
-          </div>
-
-          <div class="section-head">
-            <div>
-              <h2>${plugins.length ? "插件目录" : "没有匹配结果"}</h2>
-              <p>${plugins.length ? `找到 ${plugins.length} 个插件，按当前筛选展示。` : "换个关键词，或提交你想收录的插件。"}</p>
-            </div>
-            <a class="button ghost" href="/submit" data-link>${icon("plus", "分享插件")}</a>
-          </div>
-
-          ${
-            plugins.length
-              ? `<div class="plugin-grid">${plugins.map((plugin, index) => pluginCard(plugin, index)).join("")}</div>`
-              : emptyState()
-          }
-        </section>
-
-        <aside class="sidebar" aria-label="Marketplace 信息">
-          <section class="panel marketplace-panel">
-            <div class="sidebar-visual sky">
-              <p class="eyebrow">Marketplace source</p>
-              <h2>Marketplace</h2>
-              <p>添加一次，后续从 GitHub 同步审核通过的插件。</p>
-            </div>
-            <div class="section-head sr-panel-copy">
-              <div>
-                <h2>Marketplace</h2>
-              </div>
-            </div>
-            <div class="code-box">
-              <code>${safe(MARKETPLACE_COMMAND)}</code>
-              <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" aria-label="复制 Marketplace 添加命令">
-                ${icon("copy")}
-              </button>
-            </div>
-          </section>
-
-          <section class="panel stats-panel sidebar-panel-colored">
-            <div class="section-head compact">
-              <div>
-                <p class="eyebrow">Registry snapshot</p>
-                <h2>市场概览</h2>
-              </div>
-            </div>
-            <div class="metrics" aria-label="市场统计">
-              <div class="metric tone-sky">${icon("boxes")}<strong>${registry.plugins.length}</strong><span>插件总数</span></div>
-              <div class="metric tone-violet">${icon("badge-check")}<strong>${verifiedCount}</strong><span>已验证</span></div>
-              <div class="metric tone-aurora">${icon("tags")}<strong>${categoriesCount}</strong><span>分类覆盖</span></div>
-            </div>
-          </section>
-
-          <section class="panel review-panel">
-            <div class="sidebar-visual aurora">
-              <p class="eyebrow">Review pipeline</p>
-              <h2>审核流程</h2>
-              <p>从提交链接到 PR 合并，每一步都可追踪。</p>
-            </div>
-            <div class="timeline">
-              ${timelineItem("link", "提交 GitHub 链接", "表单会生成可追踪的 GitHub issue。")}
-              ${timelineItem("scan-search", "Action 校验", "检查 manifest、Release、资产和目录结构。")}
-              ${timelineItem("git-pull-request", "PR 审核", "维护者合并后进入 marketplace.json。")}
-            </div>
-          </section>
-        </aside>
-      </div>
-    </main>
-  `;
-}
-
-function pluginCard(plugin, index = 0) {
-  return `
-    <article class="plugin-card tone-${(index % 3) + 1}">
-      <div class="plugin-visual">
-        <div class="plugin-top">
-        <img class="avatar" src="${safe(plugin.avatarUrl)}" alt="${safe(plugin.author)} 头像" loading="lazy" width="48" height="48" />
-        <div class="plugin-title">
-          <h3>${safe(plugin.displayName)}</h3>
-          <div class="meta">
-            <span>${safe(plugin.author)}</span>
-            <span class="mono">${safe(plugin.version)}</span>
-            <span>${safe(plugin.category)}</span>
-          </div>
-        </div>
-          ${statusBadge("verified", plugin.verifiedStatus)}
-        </div>
-        <div class="plugin-visual-label"><span>${safe(plugin.category)}</span><strong>${safe(plugin.releaseTag)}</strong></div>
-      </div>
-      <p class="card-description">${safe(plugin.description)}</p>
-      <div class="chip-row">${tagList(plugin.tags)}</div>
-      <div class="meta">
-        ${statusBadge("sync", plugin.syncStatus)}
-        <span>同步 ${formatDate(plugin.syncTimestamp)}</span>
-      </div>
-      <div class="card-actions">
-        <a class="button" href="/plugins/${safe(plugin.name)}" data-link>${icon("arrow-right", "查看详情")}</a>
-        <a class="button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "GitHub")}</a>
-      </div>
-    </article>
-  `;
 }
 
 function emptyState() {
@@ -478,153 +354,8 @@ function perspectivePluginCard(plugin, index = 0) {
       </div>
       <div class="card-actions">
         <a class="perspective-button primary" href="/plugins/${safe(plugin.name)}" data-link>${icon("arrow-right", "查看")}</a>
-        <a class="perspective-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "GitHub")}</a>
-      </div>
-    </article>
-  `;
-}
-
-function organicPage() {
-  const plugins = filteredPlugins();
-  const verifiedCount = registry.plugins.filter((plugin) => plugin.verifiedStatus === "verified").length;
-  const categoriesCount = categories().length - 1;
-  return `
-    <div class="organic-app">
-      ${header()}
-      <main id="main" class="organic-page" aria-label="自然有机风格插件市场">
-        <section class="organic-hero" aria-labelledby="organic-title">
-          <div class="organic-ambient" aria-hidden="true">
-            <span class="organic-blob blob-one"></span>
-            <span class="organic-blob blob-two"></span>
-            <span class="organic-blob blob-three"></span>
-            <span class="organic-line line-one"></span>
-            <span class="organic-line line-two"></span>
-          </div>
-
-          <div class="organic-hero-copy organic-surface text-panel">
-            <span class="organic-kicker">${icon("leaf", "Organic Marketplace")}</span>
-            <h1 id="organic-title">让 Codex 插件像创意生态一样自然生长</h1>
-            <p>以柔和 blob、手绘曲线和雾面叠层组织插件信息。视觉像在呼吸，搜索、状态和安装动作依然清晰稳定。</p>
-            <div class="organic-actions">
-              <a class="organic-button primary" href="/submit" data-link>${icon("git-pull-request", "分享插件")}</a>
-              <button class="organic-button secondary" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}">${icon("copy", "复制 Marketplace")}</button>
-            </div>
-          </div>
-
-          <aside class="organic-garden" aria-label="市场生态概览">
-            <div class="organic-garden-card pod-large">
-              <span>${icon("boxes")}</span>
-              <strong>${registry.plugins.length}</strong>
-              <p>插件枝叶</p>
-            </div>
-            <div class="organic-garden-card pod-medium">
-              <span>${icon("badge-check")}</span>
-              <strong>${verifiedCount}</strong>
-              <p>已验证花苞</p>
-            </div>
-            <div class="organic-garden-card pod-small">
-              <span>${icon("tags")}</span>
-              <strong>${categoriesCount}</strong>
-              <p>能力土壤</p>
-            </div>
-          </aside>
-        </section>
-
-        <section class="organic-workspace" aria-label="自然有机插件发现工作台">
-          <div class="organic-toolbar organic-surface">
-            <div class="field organic-search-field">
-              <label for="plugin-search">搜索插件</label>
-              <div class="input-shell">
-                ${icon("search")}
-                <input id="plugin-search" value="${safe(state.query)}" placeholder="搜索 GitHub、设计、数据、文档..." autocomplete="off" />
-              </div>
-            </div>
-            <button class="organic-button secondary" type="button" data-verified-toggle aria-pressed="${state.showOnlyVerified}">
-              ${icon("badge-check", state.showOnlyVerified ? "显示全部" : "仅看已验证")}
-            </button>
-          </div>
-
-          <div class="organic-tabs" role="tablist" aria-label="插件分类">
-            ${categories()
-              .map(
-                (category, index) => `
-                  <button class="organic-tab tone-${(index % 4) + 1}" type="button" role="tab" data-category="${safe(category)}" aria-selected="${
-                    state.category === category
-                  }">${safe(category)}</button>
-                `
-              )
-              .join("")}
-          </div>
-
-          <div class="organic-content-grid">
-            <aside class="organic-story organic-surface" aria-label="收录流程">
-              <span class="organic-kicker">Growth Path</span>
-              <h2>收录像培育一株植物</h2>
-              ${organicStep("link", "播种链接", "提交 GitHub 仓库，形成可追踪 issue。")}
-              ${organicStep("scan-search", "温和校验", "检查 manifest、Release、资产和目录结构。")}
-              ${organicStep("git-pull-request", "长入目录", "审核合并后同步到 Marketplace。")}
-              <a class="organic-button secondary wide" href="/perspective" data-link>${icon("layers-3", "查看 Perspective 版")}</a>
-            </aside>
-
-            <div class="organic-directory">
-              <div class="organic-section-head">
-                <div>
-                  <span class="organic-kicker">Plugin Grove</span>
-                  <h2>${plugins.length ? "插件林地" : "没有匹配结果"}</h2>
-                </div>
-                <p>${plugins.length ? `当前筛选下有 ${plugins.length} 个插件。` : "换个关键词，或把新的插件仓库种进来。"}</p>
-              </div>
-              ${
-                plugins.length
-                  ? `<div class="organic-grid">${plugins.map((plugin, index) => organicPluginCard(plugin, index)).join("")}</div>`
-                  : `<div class="organic-surface organic-empty">${emptyState()}</div>`
-              }
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
-  `;
-}
-
-function organicStep(iconName, title, text) {
-  return `
-    <div class="organic-step">
-      <span>${icon(iconName)}</span>
-      <div>
-        <strong>${title}</strong>
-        <p>${text}</p>
-      </div>
-    </div>
-  `;
-}
-
-function organicPluginCard(plugin, index = 0) {
-  return `
-    <article class="organic-plugin-card organic-surface tone-${(index % 5) + 1}">
-      <div class="organic-card-visual" aria-hidden="true">
-        <span class="organic-card-orb"></span>
-        <span class="organic-card-thread"></span>
-      </div>
-      <div class="organic-card-body text-panel">
-        <div class="organic-card-top">
-          <img class="avatar" src="${safe(plugin.avatarUrl)}" alt="${safe(plugin.author)} 头像" loading="lazy" width="48" height="48" />
-          <div>
-            <h3>${safe(plugin.displayName)}</h3>
-            <p>${safe(plugin.author)} · ${safe(plugin.version)} · ${safe(plugin.category)}</p>
-          </div>
-        </div>
-        <p class="organic-description">${safe(plugin.description)}</p>
-        <div class="chip-row">${tagList(plugin.tags)}</div>
-        <div class="organic-card-meta">
-          ${statusBadge("verified", plugin.verifiedStatus)}
-          ${statusBadge("sync", plugin.syncStatus)}
-          <span>${safe(plugin.releaseTag)}</span>
-        </div>
-        <div class="card-actions">
-          <a class="organic-button primary" href="/plugins/${safe(plugin.name)}" data-link>${icon("arrow-right", "查看详情")}</a>
-          <a class="organic-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "GitHub")}</a>
-        </div>
+        <a class="perspective-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("external-link", "打开仓库")}</a>
+        ${pluginCopyActions(plugin, "perspective")}
       </div>
     </article>
   `;
@@ -645,7 +376,7 @@ function timelineItem(iconName, title, text) {
 function detailPage(name) {
   const plugin = registry.plugins.find((item) => item.name === name);
   if (!plugin) return notFoundPage();
-  const installCommand = `codex plugin add ${plugin.name}@${registry.marketplace.name || "codex-community"}`;
+  const installCommand = pluginInstallCommand(plugin);
   return `
     ${header()}
     <main id="main" class="page">
@@ -687,7 +418,7 @@ function detailPage(name) {
         <aside class="sidebar">
           <section class="panel">
             <h2>安装入口</h2>
-            <p class="helper">Codex Desktop 使用 Marketplace 仓库链接；Codex CLI 使用 marketplace add 命令。</p>
+            <p class="helper">可以同步整个 Marketplace，也可以只复制当前插件的仓库链接或 CLI 安装命令。</p>
             <div class="code-box">
               <code>${safe(MARKETPLACE_REPOSITORY_URL)}</code>
               <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制" aria-label="复制 Marketplace 链接">${icon("monitor")}</button>
@@ -696,9 +427,19 @@ function detailPage(name) {
               <code>${safe(MARKETPLACE_COMMAND)}</code>
               <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制" aria-label="复制 Marketplace 命令">${icon("terminal")}</button>
             </div>
-            <div class="code-box">
-              <code>${safe(installCommand)}</code>
-              <button class="copy-button" type="button" data-copy="${safe(installCommand)}" aria-label="复制插件安装命令">${icon("copy")}</button>
+            <div class="install-choice">
+              <span>${icon("github", "插件 GitHub")}</span>
+              <div class="code-box">
+                <code>${safe(plugin.repositoryUrl)}</code>
+                <button class="copy-button" type="button" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="插件 GitHub 链接已复制" aria-label="复制插件 GitHub 仓库链接">${icon("copy")}</button>
+              </div>
+            </div>
+            <div class="install-choice">
+              <span>${icon("terminal", "单插件 CLI")}</span>
+              <div class="code-box">
+                <code>${safe(installCommand)}</code>
+                <button class="copy-button" type="button" data-copy="${safe(installCommand)}" data-copy-label="插件安装命令已复制" aria-label="复制插件安装命令">${icon("copy")}</button>
+              </div>
             </div>
           </section>
 
@@ -726,13 +467,13 @@ function submitPage() {
         <section class="detail-card">
           <span class="eyebrow">${icon("git-pull-request", "提交插件")}</span>
           <h1>分享一个 Codex 插件 GitHub 仓库</h1>
-          <p class="lede">提交后会生成 GitHub issue。维护者审核通过后，Action 会抓取 Release 快照并更新 Marketplace。</p>
+          <p class="lede">提交后会生成 GitHub issue。自动审核规则通过后，Action 会同步 registry、网页和 Codex marketplace 快照。</p>
 
           <form class="form-grid detail-section" data-submit-form novalidate>
             <div class="field">
               <label for="repo-url">GitHub 仓库 URL <span aria-hidden="true">*</span></label>
               <input id="repo-url" name="repoUrl" type="url" inputmode="url" autocomplete="url" value="${safe(url)}" placeholder="https://github.com/owner/plugin-repo" aria-describedby="repo-help repo-error" aria-invalid="${Boolean(error)}" />
-              <p id="repo-help" class="helper">需要公开仓库，并在 Release 中包含 <code>.codex-plugin/plugin.json</code>。</p>
+              <p id="repo-help" class="helper">需要公开仓库，并在根目录或 <code>plugins/*</code> 子目录包含 <code>.codex-plugin/plugin.json</code>。</p>
               <p id="repo-error" class="error-text" role="alert">${safe(error)}</p>
             </div>
             <div class="field">
@@ -758,8 +499,8 @@ function submitPage() {
           <section class="panel">
             <h2>自动校验</h2>
             <div class="timeline">
-              ${timelineItem("file-json", "Manifest", "检查 name、version、author、interface 字段。")}
-              ${timelineItem("tag", "Release/tag", "只同步稳定 Release，不追踪默认分支 HEAD。")}
+              ${timelineItem("file-json", "Manifest", "检查 name、version、author、interface、capabilities 字段。")}
+              ${timelineItem("tag", "Release/tag", "优先使用指定 ref；没有 Release 时可同步默认分支快照。")}
               ${timelineItem("shield-check", "安全边界", "不执行提交仓库中的插件代码。")}
             </div>
           </section>
@@ -779,8 +520,8 @@ function installPage() {
         <p class="lede">添加后，Codex Desktop 会从这个 GitHub 仓库读取 <code>marketplace.json</code> 和已审核插件快照。</p>
 
         <div class="detail-section">
-          <h2>1. Codex Desktop 添加链接</h2>
-          <p class="helper">在 Codex Desktop 的插件市场来源中添加这个 GitHub 仓库链接。</p>
+          <h2>1. 同步整个 Marketplace</h2>
+          <p class="helper">在 Codex Desktop 的插件市场来源中添加这个 GitHub 仓库链接。添加后，已验证插件会随中央仓库同步显示。</p>
           <div class="code-box">
             <code>${safe(MARKETPLACE_REPOSITORY_URL)}</code>
             <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制" aria-label="复制 Marketplace 链接">${icon("monitor")}</button>
@@ -788,7 +529,7 @@ function installPage() {
         </div>
 
         <div class="detail-section">
-          <h2>2. Codex CLI 添加命令</h2>
+          <h2>2. Codex CLI 添加 Marketplace</h2>
           <div class="code-box">
             <code>${safe(MARKETPLACE_COMMAND)}</code>
             <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制" aria-label="复制 Marketplace 命令">${icon("terminal")}</button>
@@ -796,8 +537,8 @@ function installPage() {
         </div>
 
         <div class="detail-section">
-          <h2>3. 安装插件</h2>
-          <p class="helper">在详情页复制具体插件安装命令，格式为：</p>
+          <h2>3. 单独安装已验证插件</h2>
+          <p class="helper">每个已验证插件卡片和详情页都会提供两个复制按钮：插件 GitHub 仓库链接，以及从已配置 Marketplace 安装该插件的 CLI 命令。</p>
           <div class="code-box">
             <code>codex plugin add plugin-name@codex-community</code>
             <button class="copy-button" type="button" data-copy="codex plugin add plugin-name@codex-community" aria-label="复制插件安装命令示例">${icon("copy")}</button>
@@ -806,7 +547,7 @@ function installPage() {
 
         <div class="detail-section notice-box">
           <h2>同步策略</h2>
-          <p>第一版按 GitHub Releases/tags 同步。新版本通过 GitHub Action 创建 PR，审核合并后进入市场。</p>
+          <p>中央仓库用于批量发现和同步插件；单插件 CLI 命令用于精确安装某个已验证插件。自动审核规则通过后，Action 会更新 registry 和 marketplace 快照，网页与 Codex marketplace 都会同步出现该插件。</p>
         </div>
       </section>
     </main>
@@ -826,15 +567,15 @@ function aboutPage() {
           <h2>必须满足</h2>
           <ul class="detail-list">
             <li><span>公开来源</span><strong>GitHub 仓库和 Release 可访问</strong></li>
-            <li><span>Codex manifest</span><strong>包含 <code>.codex-plugin/plugin.json</code></strong></li>
-            <li><span>版本</span><strong>使用 SemVer，并按 Release/tag 发布</strong></li>
+            <li><span>Codex manifest</span><strong>根目录或 <code>plugins/*</code> 子目录包含 <code>.codex-plugin/plugin.json</code></strong></li>
+            <li><span>版本</span><strong>manifest 使用 SemVer；Release/tag 推荐，默认分支可作为预览 ref</strong></li>
             <li><span>资源</span><strong>引用的图标、截图和配置文件必须存在</strong></li>
           </ul>
         </div>
 
         <div class="detail-section">
           <h2>不会做</h2>
-          <p>审核 Action 不会执行插件代码，不会自动上架未审核提交，也不会把默认分支 HEAD 当作稳定版本。</p>
+          <p>审核 Action 不会执行插件代码；只在 manifest、README、skills/mcp 路径等规则通过后自动同步。</p>
         </div>
       </section>
     </main>
@@ -859,7 +600,6 @@ function render() {
   if (path.startsWith("/install")) view = installPage();
   if (path.startsWith("/about")) view = aboutPage();
   if (path.startsWith("/perspective")) view = perspectivePage();
-  if (path.startsWith("/organic")) view = organicPage();
   app.innerHTML = view;
   attachEvents();
   renderIcons();

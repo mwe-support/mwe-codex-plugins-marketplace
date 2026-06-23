@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "email-protocols-rust": {
+      "title": "Email Protocols Rust Preview",
+      "description": "Rust stdio MCP backend for Email Protocols validation before default promotion.",
+      "cwd": ".",
+      "command": "./bin/email-protocols-mcp.exe",
+      "args": [
+        "--email-protocols-mcp"
+      ]
+    }
+  }
+}

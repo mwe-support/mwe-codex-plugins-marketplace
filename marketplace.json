@@ -3,61 +3,24 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-23T10:48:58.508Z",
+  "generatedAt": "2026-06-23T16:25:57.622Z",
   "plugins": [
     {
-      "name": "github",
-      "displayName": "GitHub",
-      "version": "0.1.5",
-      "releaseTag": "v0.1.5",
-      "repositoryUrl": "https://github.com/openai/plugins",
+      "name": "email-protocols-rust",
+      "displayName": "Email Protocols Rust Preview",
+      "version": "0.1.1",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/mwe-support/mwe-codex-email-protocols-plugin",
       "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE"
-    },
-    {
-      "name": "notion",
-      "displayName": "Notion",
-      "version": "0.1.3",
-      "releaseTag": "v0.1.3",
-      "repositoryUrl": "https://github.com/openai/plugins",
-      "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE"
-    },
-    {
-      "name": "product-design",
-      "displayName": "Product Design",
-      "version": "0.1.46",
-      "releaseTag": "v0.1.46",
-      "repositoryUrl": "https://github.com/openai/plugins",
-      "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE"
-    },
-    {
-      "name": "data-analytics",
-      "displayName": "Data Analytics",
-      "version": "0.1.43",
-      "releaseTag": "v0.1.43",
-      "repositoryUrl": "https://github.com/openai/plugins",
-      "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE"
-    },
-    {
-      "name": "sentry",
-      "displayName": "Sentry",
-      "version": "0.1.0",
-      "releaseTag": "v0.1.0",
-      "repositoryUrl": "https://github.com/openai/plugins",
-      "verifiedStatus": "unverified",
-      "installPolicy": "AVAILABLE"
-    },
-    {
-      "name": "ui-ux-pro-max",
-      "displayName": "UI/UX Pro Max",
-      "version": "2.6.2",
-      "releaseTag": "v2.6.2",
-      "repositoryUrl": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
-      "verifiedStatus": "reviewing",
-      "installPolicy": "AVAILABLE"
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/mwe-support/mwe-codex-email-protocols-plugin",
+        "ref": "main",
+        "path": "marketplace/snapshots/email-protocols-rust",
+        "upstreamPath": "plugins/email-protocols-rust",
+        "manifestPath": ".codex-plugin/plugin.json"
+      }
     }
   ]
 }

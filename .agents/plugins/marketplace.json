@@ -1,0 +1,20 @@
+{
+  "name": "codex-community",
+  "interface": {
+    "displayName": "MWE Codex Plugin Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "email-protocols-rust",
+      "source": {
+        "source": "local",
+        "path": "./marketplace/snapshots/email-protocols-rust"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

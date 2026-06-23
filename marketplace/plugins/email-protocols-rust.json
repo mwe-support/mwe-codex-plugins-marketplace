@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "name": "email-protocols-rust",
+  "displayName": "Email Protocols Rust Preview",
+  "description": "Rust backend for standard IMAP/POP3 email accounts",
+  "longDescription": "Preview implementation of the Email Protocols MCP server in Rust. It provides mail_open_config_ui for a local setup page where users enter an email account, email client app password, provider, and default protocol. It preserves the existing IMAP/SMTP and POP3/SMTP tool names, schemas, dynamic protocol-aware tool exposure, and stable business error shape. GitHub source installs include the Windows x64 runtime at ./bin/email-protocols-mcp.exe; plugin users do not need Rust or Cargo.",
+  "author": "MWE Support",
+  "avatarUrl": "https://github.com/mwe-support.png?size=96",
+  "category": "Productivity",
+  "tags": [
+    "Productivity",
+    "Auto Reviewed"
+  ],
+  "capabilities": [
+    "Read",
+    "Write"
+  ],
+  "version": "0.1.1",
+  "releaseTag": "main",
+  "repositoryUrl": "https://github.com/mwe-support/mwe-codex-email-protocols-plugin",
+  "verifiedStatus": "verified",
+  "syncStatus": "synced",
+  "syncTimestamp": "2026-06-23T16:22:19.716Z",
+  "installPolicy": "AVAILABLE",
+  "featured": false,
+  "source": {
+    "type": "local-snapshot",
+    "url": "https://github.com/mwe-support/mwe-codex-email-protocols-plugin",
+    "ref": "main",
+    "path": "marketplace/snapshots/email-protocols-rust",
+    "upstreamPath": "plugins/email-protocols-rust",
+    "manifestPath": ".codex-plugin/plugin.json"
+  },
+  "review": {
+    "status": "approved",
+    "reviewedAt": "2026-06-23T16:22:19.716Z",
+    "reviewer": "@mwe-support",
+    "method": "auto-rules",
+    "rules": [
+      "public GitHub repository cloned",
+      ".codex-plugin/plugin.json discovered",
+      "manifest identity, version, interface and capability fields valid",
+      "README and declared skills/mcp paths present"
+    ]
+  }
+}

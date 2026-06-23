@@ -2,14 +2,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PLUGIN_DIR = path.join(ROOT, 'marketplace/plugins');
 const SUBMISSION_DIR = path.join(ROOT, 'marketplace/submissions');
+const SNAPSHOT_DIR = path.join(ROOT, 'marketplace/snapshots');
 const REGISTRY_FILE = path.join(ROOT, 'registry/plugins.json');
 const CODEX_MARKETPLACE_FILE = path.join(ROOT, 'marketplace.json');
+const AGENTS_MARKETPLACE_FILE = path.join(ROOT, '.agents/plugins/marketplace.json');
 const MARKETPLACE_REPOSITORY_URL = 'https://github.com/mwe-support/mwe-codex-plugins-marketplace';
 const MARKETPLACE_NAME = 'codex-community';
 
@@ -22,6 +26,7 @@ function usage() {
 Commands:
   submit <github-url> [--note text] [--by name]
   approve <submission-id-or-file> [metadata flags]
+  auto-review <submission-id-or-file|github-url> [--by name] [--ref ref]
   reject <submission-id-or-file> --reason text
   sync [--check]
   validate
@@ -36,8 +41,127 @@ Approval metadata flags:
 function ensureDirs() {
   fs.mkdirSync(PLUGIN_DIR, { recursive: true });
   fs.mkdirSync(SUBMISSION_DIR, { recursive: true });
+  fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
   fs.mkdirSync(path.dirname(REGISTRY_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(AGENTS_MARKETPLACE_FILE), { recursive: true });
 }
+
+function runGit(args, options = {}) {
+  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options }).trim();
+}
+
+function walkFiles(dir, files = []) {
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '.git' || entry.name === 'node_modules') continue;
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkFiles(file, files);
+    else files.push(file);
+  }
+  return files;
+}
+
+function readTextIfExists(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+function firstParagraph(markdown) {
+  const lines = markdown.split(/\r?\n/).map((line) => line.trim());
+  const useful = [];
+  for (const line of lines) {
+    if (!line || line.startsWith('#')) {
+      if (useful.length) break;
+      continue;
+    }
+    useful.push(line);
+    if (useful.join(' ').length > 220) break;
+  }
+  return useful.join(' ').slice(0, 320);
+}
+
+function authorName(author, fallback) {
+  if (!author) return fallback;
+  if (typeof author === 'string') return author;
+  return author.name || fallback;
+}
+
+function normalizePathForJson(value) {
+  return value.split(path.sep).join('/');
+}
+
+function validateSourcePlugin(plugin, pluginDir) {
+  const errors = [];
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(plugin.name || '')) errors.push('manifest name 只能包含字母、数字、点、下划线或短横线');
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(plugin.version || '')) errors.push('manifest version 需要是 SemVer，例如 0.1.0');
+  if (!plugin.description && !plugin.interface?.shortDescription) errors.push('manifest 需要 description 或 interface.shortDescription');
+  if (!authorName(plugin.author, plugin.interface?.developerName)) errors.push('manifest 需要 author.name 或 interface.developerName');
+  if (!plugin.interface?.displayName) errors.push('manifest interface.displayName 缺失');
+  if (!plugin.interface?.category) errors.push('manifest interface.category 缺失');
+  if (!Array.isArray(plugin.interface?.capabilities) || plugin.interface.capabilities.length === 0) errors.push('manifest interface.capabilities 需要至少一个能力');
+  if (plugin.skills && !fs.existsSync(path.resolve(pluginDir, plugin.skills))) errors.push('skills 路径不存在：' + plugin.skills);
+  if (plugin.mcpServers && !fs.existsSync(path.resolve(pluginDir, plugin.mcpServers))) errors.push('mcpServers 路径不存在：' + plugin.mcpServers);
+  if (!fs.existsSync(path.join(pluginDir, 'README.md'))) errors.push('插件目录需要 README.md');
+  return errors;
+}
+
+function discoverSourcePlugins(repoDir, repo, args = {}) {
+  const manifestFiles = walkFiles(repoDir).filter((file) => normalizePathForJson(path.relative(repoDir, file)).endsWith('.codex-plugin/plugin.json'));
+  if (!manifestFiles.length) throw new Error('自动审核失败：没有找到 .codex-plugin/plugin.json');
+  return manifestFiles.map((manifestFile) => {
+    const pluginDir = path.dirname(path.dirname(manifestFile));
+    const manifest = readJson(manifestFile);
+    const relativePluginDir = normalizePathForJson(path.relative(repoDir, pluginDir)) || '.';
+    const manifestPath = normalizePathForJson(path.relative(pluginDir, manifestFile));
+    const readme = readTextIfExists(path.join(pluginDir, 'README.md'));
+    const errors = validateSourcePlugin(manifest, pluginDir);
+    if (errors.length) throw new Error('自动审核失败：' + relativePluginDir + '\n- ' + errors.join('\n- '));
+    const iface = manifest.interface || {};
+    const ref = args.ref || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoDir }) || 'main';
+    const timestamp = now();
+    return {
+      schemaVersion: 1,
+      name: args.name || manifest.name,
+      displayName: args['display-name'] || iface.displayName || titleFromRepo(manifest.name),
+      description: args.description || iface.shortDescription || manifest.description,
+      longDescription: args['long-description'] || iface.longDescription || firstParagraph(readme) || iface.shortDescription || manifest.description,
+      author: args.author || authorName(manifest.author, iface.developerName || repo.owner),
+      avatarUrl: args['avatar-url'] || 'https://github.com/' + repo.owner + '.png?size=96',
+      category: args.category || iface.category || 'Community',
+      tags: splitList(args.tags).length ? splitList(args.tags) : [iface.category || 'Community', 'Auto Reviewed'].filter(Boolean),
+      capabilities: splitList(args.capabilities).length ? splitList(args.capabilities) : iface.capabilities || [],
+      version: args.version || manifest.version,
+      releaseTag: ref,
+      repositoryUrl: repo.repositoryUrl,
+      verifiedStatus: 'verified',
+      syncStatus: 'synced',
+      syncTimestamp: timestamp,
+      installPolicy: 'AVAILABLE',
+      featured: args.featured === 'true',
+      source: {
+        type: 'local-snapshot',
+        url: repo.repositoryUrl,
+        ref,
+        path: null,
+        upstreamPath: relativePluginDir,
+        manifestPath,
+      },
+      __pluginDir: pluginDir,
+      review: {
+        status: 'approved',
+        reviewedAt: timestamp,
+        reviewer: args.by || 'marketplace-bot',
+        method: 'auto-rules',
+        rules: [
+          'public GitHub repository cloned',
+          '.codex-plugin/plugin.json discovered',
+          'manifest identity, version, interface and capability fields valid',
+          'README and declared skills/mcp paths present',
+        ],
+      },
+    };
+  });
+}
+
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -137,6 +261,8 @@ function normalizePlugin(plugin) {
   if (plugin.verifiedStatus && !allowedStatuses.has(plugin.verifiedStatus)) errors.push(`${plugin.name} verifiedStatus 无效`);
   if (plugin.syncStatus && !allowedSyncStatuses.has(plugin.syncStatus)) errors.push(`${plugin.name} syncStatus 无效`);
   parseGithubRepo(plugin.repositoryUrl);
+  if (plugin.source?.path && path.isAbsolute(plugin.source.path)) errors.push(`${plugin.name} source.path 不能是绝对路径`);
+  if (plugin.source?.type === 'local-snapshot' && plugin.source.path && !fs.existsSync(path.join(ROOT, plugin.source.path))) errors.push(`${plugin.name} source.path 快照不存在`);
   return errors;
 }
 
@@ -158,6 +284,7 @@ function submissionToRegistryPlugin(submission) {
     syncStatus: 'pending',
     syncTimestamp: submission.updatedAt || submission.submittedAt,
     installPolicy: 'REVIEW_ONLY',
+    source: { type: 'pending', path: null },
     featured: false,
   };
 }
@@ -180,6 +307,7 @@ function pluginSourceToRegistry(plugin) {
     syncStatus: plugin.syncStatus || 'synced',
     syncTimestamp: plugin.syncTimestamp || now(),
     installPolicy: plugin.installPolicy || 'AVAILABLE',
+    source: plugin.source || { type: 'local-snapshot', url: plugin.repositoryUrl, ref: plugin.releaseTag, path: '.', manifestPath: '.codex-plugin/plugin.json' },
     featured: Boolean(plugin.featured),
   };
 }
@@ -224,6 +352,30 @@ function buildCodexMarketplace(registry) {
         repositoryUrl: plugin.repositoryUrl,
         verifiedStatus: plugin.verifiedStatus,
         installPolicy: plugin.installPolicy,
+        source: plugin.source,
+      })),
+  };
+}
+
+function buildAgentsMarketplace(registry) {
+  return {
+    name: registry.marketplace.name,
+    interface: {
+      displayName: registry.marketplace.displayName,
+    },
+    plugins: registry.plugins
+      .filter((plugin) => plugin.installPolicy !== 'REVIEW_ONLY')
+      .map((plugin) => ({
+        name: plugin.name,
+        source: {
+          source: 'local',
+          path: './' + (plugin.source?.path || '.'),
+        },
+        policy: {
+          installation: plugin.installPolicy || 'AVAILABLE',
+          authentication: plugin.authentication || 'ON_INSTALL',
+        },
+        category: plugin.category,
       })),
   };
 }
@@ -313,6 +465,63 @@ function commandApprove(args) {
   console.log(`approved ${submission.id} -> marketplace/plugins/${name}.json`);
 }
 
+function commandAutoReview(args) {
+  const ref = args._[0];
+  if (!ref) throw new Error('auto-review 需要 submission id、文件路径或 GitHub 仓库 URL');
+  let submissionFile;
+  if (/^https:\/\/github\.com\//.test(ref)) {
+    const repo = parseGithubRepo(ref);
+    const slug = (repo.owner + '-' + repo.repo).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    try {
+      commandSubmit({ ...args, _: [ref] });
+    } catch (error) {
+      if (!String(error.message).includes('提交已存在')) throw error;
+      console.log('submission already exists for ' + repo.repositoryUrl);
+    }
+    submissionFile = resolveSubmission(slug);
+  } else {
+    submissionFile = resolveSubmission(ref);
+  }
+  const submission = readJson(submissionFile);
+  if (submission.status === 'approved') {
+    console.log('submission already approved: ' + submission.id);
+    return;
+  }
+  if (submission.status !== 'reviewing') throw new Error('只能自动审核 reviewing 状态，当前为 ' + submission.status);
+  const repo = parseGithubRepo(submission.repositoryUrl);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mwe-marketplace-review-'));
+  const repoDir = path.join(tmp, 'repo');
+  try {
+    runGit(['clone', '--depth=1', '--branch', args.ref || 'main', repo.repositoryUrl, repoDir]);
+  } catch {
+    runGit(['clone', '--depth=1', repo.repositoryUrl, repoDir]);
+  }
+  const plugins = discoverSourcePlugins(repoDir, repo, args);
+  for (const plugin of plugins) {
+    const snapshotPath = normalizePathForJson(path.join('marketplace/snapshots', plugin.name));
+    const snapshotDir = path.join(ROOT, snapshotPath);
+    fs.rmSync(snapshotDir, { recursive: true, force: true });
+    fs.cpSync(plugin.__pluginDir, snapshotDir, { recursive: true });
+    delete plugin.__pluginDir;
+    plugin.source.path = snapshotPath;
+    const errors = normalizePlugin(plugin);
+    if (errors.length) throw new Error(errors.join('\n'));
+    writeJson(path.join(PLUGIN_DIR, plugin.name + '.json'), plugin);
+    console.log('auto-approved ' + plugin.name + ' from ' + plugin.source.path);
+  }
+  const timestamp = now();
+  submission.status = 'approved';
+  submission.updatedAt = timestamp;
+  submission.review = {
+    ...submission.review,
+    reviewer: args.by || 'marketplace-bot',
+    decision: 'approved',
+    reason: 'auto-approved ' + plugins.length + ' plugin(s): ' + plugins.map((plugin) => plugin.name).join(', '),
+    reviewedAt: timestamp,
+  };
+  writeJson(submissionFile, submission);
+}
+
 function commandReject(args) {
   const ref = args._[0];
   if (!ref) throw new Error('reject 需要 submission id 或文件路径');
@@ -371,7 +580,9 @@ function commandSync(args) {
     const nextRegistry = JSON.stringify(registry, null, 2) + '\n';
     const currentMarketplace = fs.existsSync(CODEX_MARKETPLACE_FILE) ? fs.readFileSync(CODEX_MARKETPLACE_FILE, 'utf8') : '';
     const nextMarketplace = JSON.stringify(codexMarketplace, null, 2) + '\n';
-    if (currentRegistry !== nextRegistry || currentMarketplace !== nextMarketplace) {
+    const currentAgentsMarketplace = fs.existsSync(AGENTS_MARKETPLACE_FILE) ? fs.readFileSync(AGENTS_MARKETPLACE_FILE, 'utf8') : '';
+    const nextAgentsMarketplace = JSON.stringify(buildAgentsMarketplace(registry), null, 2) + '\n';
+    if (currentRegistry !== nextRegistry || currentMarketplace !== nextMarketplace || currentAgentsMarketplace !== nextAgentsMarketplace) {
       console.error('registry or marketplace.json is out of sync; run node scripts/marketplace.mjs sync');
       process.exitCode = 1;
       return;
@@ -381,7 +592,8 @@ function commandSync(args) {
   }
   writeJson(REGISTRY_FILE, registry);
   writeJson(CODEX_MARKETPLACE_FILE, codexMarketplace);
-  console.log(`wrote ${path.relative(ROOT, REGISTRY_FILE)} and ${path.relative(ROOT, CODEX_MARKETPLACE_FILE)}`);
+  writeJson(AGENTS_MARKETPLACE_FILE, buildAgentsMarketplace(registry));
+  console.log(`wrote ${path.relative(ROOT, REGISTRY_FILE)}, ${path.relative(ROOT, CODEX_MARKETPLACE_FILE)} and ${path.relative(ROOT, AGENTS_MARKETPLACE_FILE)}`);
 }
 
 ensureDirs();
@@ -391,6 +603,7 @@ try {
   if (!command || command === 'help' || command === '--help') usage();
   else if (command === 'submit') commandSubmit(args);
   else if (command === 'approve') commandApprove(args);
+  else if (command === 'auto-review') commandAutoReview(args);
   else if (command === 'reject') commandReject(args);
   else if (command === 'sync') commandSync(args);
   else if (command === 'validate') commandValidate();

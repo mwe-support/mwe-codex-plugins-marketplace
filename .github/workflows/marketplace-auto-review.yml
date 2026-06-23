@@ -1,0 +1,78 @@
+name: Marketplace Auto Review
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  auto-review:
+    if: >-
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'plugin-submission')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/marketplace submit '))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract submission URL
+        id: extract
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const body = process.env.EVENT_NAME === 'issue_comment' ? process.env.COMMENT_BODY : process.env.ISSUE_BODY;
+          const match = String(body || '').match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
+          if (!match) {
+            console.error('No GitHub repository URL found in submission.');
+            process.exit(1);
+          }
+          console.log(`url=${match[0].replace(/\.git$/, '')}`);
+          NODE
+      - name: Auto-review and sync marketplace
+        env:
+          SUBMISSION_URL: ${{ steps.extract.outputs.url }}
+          SUBMITTER: ${{ github.actor }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          node scripts/marketplace.mjs auto-review "$SUBMISSION_URL" --by "@$SUBMITTER" --issue "$ISSUE_URL"
+          node scripts/marketplace.mjs sync
+          node scripts/marketplace.mjs sync --check
+      - name: Commit approved plugin
+        id: commit
+        run: |
+          if git diff --quiet -- marketplace/submissions marketplace/plugins marketplace/snapshots registry/plugins.json marketplace.json .agents/plugins/marketplace.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add marketplace/submissions marketplace/plugins marketplace/snapshots registry/plugins.json marketplace.json .agents/plugins/marketplace.json
+          git commit -m "Auto-approve marketplace submission"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Comment result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          JOB_STATUS: ${{ job.status }}
+          SUBMISSION_URL: ${{ steps.extract.outputs.url }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "自动审核通过并已同步 Marketplace。提交仓库：$SUBMISSION_URL；是否产生新提交：${CHANGED:-unknown}。"
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。请检查仓库是否包含有效的 .codex-plugin/plugin.json、README、skills/mcp 路径和 SemVer 版本。"
+          fi
