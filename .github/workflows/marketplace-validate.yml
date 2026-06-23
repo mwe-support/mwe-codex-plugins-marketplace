@@ -1,0 +1,21 @@
+name: Marketplace Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate marketplace source files
+        run: node scripts/marketplace.mjs validate
+      - name: Regenerate registry and marketplace
+        run: node scripts/marketplace.mjs sync
+      - name: Ensure generated files are committed
+        run: git diff --exit-code -- registry/plugins.json marketplace.json

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "name": "github",
+  "displayName": "GitHub",
+  "description": "分流 PR、Issue 和 CI，并支持发布流程。",
+  "longDescription": "使用 GitHub 检查仓库、审查 Pull Request、处理反馈、调试失败的 Actions 检查，并通过连接器优先、CLI 定向兜底的工作流准备代码变更以供审查。",
+  "author": "OpenAI",
+  "avatarUrl": "https://github.com/github.png?size=96",
+  "category": "Developer Tools",
+  "tags": [
+    "GitHub",
+    "PR",
+    "CI",
+    "Issue"
+  ],
+  "capabilities": [
+    "Interactive",
+    "Write"
+  ],
+  "version": "0.1.5",
+  "releaseTag": "v0.1.5",
+  "repositoryUrl": "https://github.com/openai/plugins",
+  "verifiedStatus": "verified",
+  "syncStatus": "synced",
+  "syncTimestamp": "2026-06-22T18:40:00Z",
+  "installPolicy": "AVAILABLE",
+  "featured": true,
+  "source": {
+    "type": "github-release",
+    "manifestPath": ".codex-plugin/plugin.json",
+    "releaseTag": "v0.1.5"
+  },
+  "review": {
+    "status": "approved",
+    "reviewedAt": "2026-06-22T18:40:00Z",
+    "reviewer": null
+  }
+}

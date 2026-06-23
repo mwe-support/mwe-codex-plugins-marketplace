@@ -1,0 +1,36 @@
+name: Marketplace Submission Command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  submit-from-comment:
+    if: contains(github.event.comment.body, '/marketplace submit ')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse command and create reviewing submission
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        run: |
+          URL=$(printf '%s' "$COMMENT_BODY" | sed -n 's#.*\/marketplace submit \(https://github.com/[^[:space:]]*\).*#\1#p' | head -n 1)
+          test -n "$URL"
+          node scripts/marketplace.mjs submit "$URL" --by "@$COMMENT_AUTHOR" --issue "${{ github.event.issue.html_url }}"
+          node scripts/marketplace.mjs sync
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: marketplace/submission-${{ github.event.issue.number }}
+          title: "Add marketplace submission from issue #${{ github.event.issue.number }}"
+          body: "Creates a reviewing marketplace submission from issue #${{ github.event.issue.number }}."
+          commit-message: "Add marketplace submission from issue #${{ github.event.issue.number }}"

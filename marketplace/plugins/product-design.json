@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "name": "product-design",
+  "displayName": "Product Design",
+  "description": "探索并原型化产品想法。",
+  "longDescription": "将早期想法转成团队可评审的原型。支持探索产品方向、审查用户流程、研究用户摩擦点、从实时 URL 制作原型，以及让静态截图变得可交互。可从文字 brief、URL、截图或既有设计开始，先比较视觉方向再进入构建。",
+  "author": "OpenAI",
+  "avatarUrl": "https://github.com/openai.png?size=96",
+  "category": "Creativity",
+  "tags": [
+    "Prototype",
+    "UI",
+    "Design QA"
+  ],
+  "capabilities": [
+    "Interactive",
+    "Assets"
+  ],
+  "version": "0.1.46",
+  "releaseTag": "v0.1.46",
+  "repositoryUrl": "https://github.com/openai/plugins",
+  "verifiedStatus": "verified",
+  "syncStatus": "synced",
+  "syncTimestamp": "2026-06-23T05:30:00Z",
+  "installPolicy": "AVAILABLE",
+  "featured": true,
+  "source": {
+    "type": "github-release",
+    "manifestPath": ".codex-plugin/plugin.json",
+    "releaseTag": "v0.1.46"
+  },
+  "review": {
+    "status": "approved",
+    "reviewedAt": "2026-06-23T05:30:00Z",
+    "reviewer": null
+  }
+}

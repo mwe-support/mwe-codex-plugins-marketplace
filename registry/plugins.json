@@ -1,0 +1,167 @@
+{
+  "marketplace": {
+    "name": "codex-community",
+    "displayName": "MWE Codex Plugin Marketplace",
+    "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
+    "marketplacePath": "marketplace.json",
+    "lastUpdated": "2026-06-23T10:48:58.508Z"
+  },
+  "plugins": [
+    {
+      "name": "github",
+      "displayName": "GitHub",
+      "description": "分流 PR、Issue 和 CI，并支持发布流程。",
+      "longDescription": "使用 GitHub 检查仓库、审查 Pull Request、处理反馈、调试失败的 Actions 检查，并通过连接器优先、CLI 定向兜底的工作流准备代码变更以供审查。",
+      "author": "OpenAI",
+      "avatarUrl": "https://github.com/github.png?size=96",
+      "category": "Developer Tools",
+      "tags": [
+        "GitHub",
+        "PR",
+        "CI",
+        "Issue"
+      ],
+      "capabilities": [
+        "Interactive",
+        "Write"
+      ],
+      "version": "0.1.5",
+      "releaseTag": "v0.1.5",
+      "repositoryUrl": "https://github.com/openai/plugins",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-22T18:40:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": true
+    },
+    {
+      "name": "notion",
+      "displayName": "Notion",
+      "description": "面向规格、研究、会议和知识沉淀的 Notion 工作流。",
+      "longDescription": "Notion 工作流可将规格转为实施计划，将研究整理为结构化文档，结合工作区上下文准备会议材料，并把决策或对话沉淀为持久知识页面。",
+      "author": "Notion",
+      "avatarUrl": "https://github.com/makenotion.png?size=96",
+      "category": "Productivity",
+      "tags": [
+        "Docs",
+        "Wiki",
+        "Meeting"
+      ],
+      "capabilities": [
+        "Interactive",
+        "Write"
+      ],
+      "version": "0.1.3",
+      "releaseTag": "v0.1.3",
+      "repositoryUrl": "https://github.com/openai/plugins",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-21T12:10:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": true
+    },
+    {
+      "name": "product-design",
+      "displayName": "Product Design",
+      "description": "探索并原型化产品想法。",
+      "longDescription": "将早期想法转成团队可评审的原型。支持探索产品方向、审查用户流程、研究用户摩擦点、从实时 URL 制作原型，以及让静态截图变得可交互。可从文字 brief、URL、截图或既有设计开始，先比较视觉方向再进入构建。",
+      "author": "OpenAI",
+      "avatarUrl": "https://github.com/openai.png?size=96",
+      "category": "Creativity",
+      "tags": [
+        "Prototype",
+        "UI",
+        "Design QA"
+      ],
+      "capabilities": [
+        "Interactive",
+        "Assets"
+      ],
+      "version": "0.1.46",
+      "releaseTag": "v0.1.46",
+      "repositoryUrl": "https://github.com/openai/plugins",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-23T05:30:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": true
+    },
+    {
+      "name": "data-analytics",
+      "displayName": "Data Analytics",
+      "description": "把数据转化为清晰决策。",
+      "longDescription": "将分析问题转化为经过验证的答案、仪表盘、报告、Notebook 和明确建议。支持探索产品与业务数据、解释关键指标变化、设计 KPI、评估机会规模、检查数据质量，并保存可复用的指标与数据源上下文。",
+      "author": "OpenAI",
+      "avatarUrl": "https://github.com/openai.png?size=96",
+      "category": "Data",
+      "tags": [
+        "Dashboard",
+        "Report",
+        "KPI"
+      ],
+      "capabilities": [
+        "Interactive",
+        "Charts"
+      ],
+      "version": "0.1.43",
+      "releaseTag": "v0.1.43",
+      "repositoryUrl": "https://github.com/openai/plugins",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-19T16:20:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": false
+    },
+    {
+      "name": "sentry",
+      "displayName": "Sentry",
+      "description": "检查近期 Sentry Issue 和事件。",
+      "longDescription": "使用 Sentry skill 以只读工作流检查近期 Issue、查看事件，并总结生产环境错误。",
+      "author": "Sentry",
+      "avatarUrl": "https://github.com/getsentry.png?size=96",
+      "category": "Developer Tools",
+      "tags": [
+        "Errors",
+        "Observability",
+        "Release"
+      ],
+      "capabilities": [
+        "Interactive"
+      ],
+      "version": "0.1.0",
+      "releaseTag": "v0.1.0",
+      "repositoryUrl": "https://github.com/openai/plugins",
+      "verifiedStatus": "unverified",
+      "syncStatus": "failed",
+      "syncTimestamp": "2026-06-18T09:05:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": false
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "displayName": "UI/UX Pro Max",
+      "description": "面向 Web 和移动端的 UI/UX 设计智能。",
+      "longDescription": "面向 Web 和移动应用的综合设计指南，包含 50+ 风格、161 套配色、57 组字体搭配、161 类产品类型推理规则、99 条 UX 指南，以及覆盖 10 种技术栈的 25 类图表建议。",
+      "author": "nextlevelbuilder",
+      "avatarUrl": "https://github.com/nextlevelbuilder.png?size=96",
+      "category": "Design",
+      "tags": [
+        "UI",
+        "UX",
+        "Accessibility"
+      ],
+      "capabilities": [
+        "Skill",
+        "Guidance"
+      ],
+      "version": "2.6.2",
+      "releaseTag": "v2.6.2",
+      "repositoryUrl": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "verifiedStatus": "reviewing",
+      "syncStatus": "pending",
+      "syncTimestamp": "2026-06-23T07:48:00Z",
+      "installPolicy": "AVAILABLE",
+      "featured": false
+    }
+  ]
+}

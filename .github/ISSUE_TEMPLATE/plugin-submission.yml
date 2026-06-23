@@ -1,0 +1,28 @@
+name: 分享 Codex 插件
+about: 提交一个希望收录到 MWE Codex 插件共享市场的 GitHub 仓库
+labels: [plugin-submission, review-needed]
+body:
+  - type: input
+    id: repository_url
+    attributes:
+      label: GitHub 仓库 URL
+      description: 需要公开可访问的插件仓库。
+      placeholder: https://github.com/owner/codex-plugin
+    validations:
+      required: true
+  - type: textarea
+    id: note
+    attributes:
+      label: 插件说明
+      description: 请说明插件用途、目标用户、权限和安装注意事项。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 仓库包含 Codex 插件 manifest 或 skill 说明。
+          required: true
+        - label: Release/tag 可用于同步稳定版本。
+          required: false
