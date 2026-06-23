@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "name": "context7",
+  "displayName": "Context7",
+  "description": "Fetch current library documentation in Codex",
+  "longDescription": "Context7 adds current, version-aware library documentation and code examples to Codex through the Context7 MCP server.",
+  "author": "Upstash",
+  "avatarUrl": "https://github.com/upstash.png?size=96",
+  "category": "Developer Tools",
+  "tags": [
+    "Developer Tools",
+    "Auto Reviewed"
+  ],
+  "capabilities": [
+    "Read"
+  ],
+  "version": "1.0.1",
+  "releaseTag": "master",
+  "repositoryUrl": "https://github.com/upstash/context7",
+  "verifiedStatus": "verified",
+  "syncStatus": "synced",
+  "syncTimestamp": "2026-06-23T17:30:13.002Z",
+  "installPolicy": "AVAILABLE",
+  "featured": false,
+  "source": {
+    "type": "local-snapshot",
+    "url": "https://github.com/upstash/context7",
+    "ref": "master",
+    "path": "marketplace/snapshots/context7",
+    "upstreamPath": "plugins/codex/context7",
+    "manifestPath": ".codex-plugin/plugin.json"
+  },
+  "review": {
+    "status": "approved",
+    "reviewedAt": "2026-06-23T17:30:13.002Z",
+    "reviewer": "@mwe-support",
+    "method": "auto-rules",
+    "rules": [
+      "public GitHub repository cloned",
+      ".codex-plugin/plugin.json discovered",
+      "manifest identity, version, interface and capability fields valid",
+      "README and declared skills/mcp paths present"
+    ]
+  }
+}

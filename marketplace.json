@@ -3,8 +3,25 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-23T16:56:59.537Z",
+  "generatedAt": "2026-06-23T17:30:13.041Z",
   "plugins": [
+    {
+      "name": "context7",
+      "displayName": "Context7",
+      "version": "1.0.1",
+      "releaseTag": "master",
+      "repositoryUrl": "https://github.com/upstash/context7",
+      "verifiedStatus": "verified",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/upstash/context7",
+        "ref": "master",
+        "path": "marketplace/snapshots/context7",
+        "upstreamPath": "plugins/codex/context7",
+        "manifestPath": ".codex-plugin/plugin.json"
+      }
+    },
     {
       "name": "cowart",
       "displayName": "Cowart",

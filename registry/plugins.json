@@ -4,9 +4,41 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-23T16:56:59.537Z"
+    "lastUpdated": "2026-06-23T17:30:13.041Z"
   },
   "plugins": [
+    {
+      "name": "context7",
+      "displayName": "Context7",
+      "description": "Fetch current library documentation in Codex",
+      "longDescription": "Context7 adds current, version-aware library documentation and code examples to Codex through the Context7 MCP server.",
+      "author": "Upstash",
+      "avatarUrl": "https://github.com/upstash.png?size=96",
+      "category": "Developer Tools",
+      "tags": [
+        "Developer Tools",
+        "Auto Reviewed"
+      ],
+      "capabilities": [
+        "Read"
+      ],
+      "version": "1.0.1",
+      "releaseTag": "master",
+      "repositoryUrl": "https://github.com/upstash/context7",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-23T17:30:13.002Z",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/upstash/context7",
+        "ref": "master",
+        "path": "marketplace/snapshots/context7",
+        "upstreamPath": "plugins/codex/context7",
+        "manifestPath": ".codex-plugin/plugin.json"
+      },
+      "featured": false
+    },
     {
       "name": "cowart",
       "displayName": "Cowart",

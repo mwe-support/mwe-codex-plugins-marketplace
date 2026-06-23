@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "upstash-context7-b88e00bc12",
+  "slug": "upstash-context7",
+  "owner": "upstash",
+  "repo": "context7",
+  "repositoryUrl": "https://github.com/upstash/context7",
+  "note": "",
+  "submitter": "@mwe-support",
+  "status": "approved",
+  "submittedAt": "2026-06-23T17:30:11.935Z",
+  "updatedAt": "2026-06-23T17:30:13.005Z",
+  "review": {
+    "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/2",
+    "reviewer": "@mwe-support",
+    "decision": "approved",
+    "reason": "auto-approved 1 plugin(s): context7",
+    "reviewedAt": "2026-06-23T17:30:13.005Z"
+  }
+}
