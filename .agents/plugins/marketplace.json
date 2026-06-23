@@ -5,6 +5,18 @@
   },
   "plugins": [
     {
+      "name": "cowart",
+      "source": {
+        "source": "local",
+        "path": "./marketplace/snapshots/cowart"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
       "name": "email-protocols-rust",
       "source": {
         "source": "local",

@@ -3,8 +3,25 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-23T16:25:57.622Z",
+  "generatedAt": "2026-06-23T16:56:59.537Z",
   "plugins": [
+    {
+      "name": "cowart",
+      "displayName": "Cowart",
+      "version": "0.1.3",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/zhongerxin/cowart",
+      "verifiedStatus": "verified",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/zhongerxin/cowart",
+        "ref": "main",
+        "path": "marketplace/snapshots/cowart",
+        "upstreamPath": ".",
+        "manifestPath": ".codex-plugin/plugin.json"
+      }
+    },
     {
       "name": "email-protocols-rust",
       "displayName": "Email Protocols Rust Preview",
