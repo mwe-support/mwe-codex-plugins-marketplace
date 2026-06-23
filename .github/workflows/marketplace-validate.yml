@@ -15,7 +15,5 @@ jobs:
           node-version: '22'
       - name: Validate marketplace source files
         run: node scripts/marketplace.mjs validate
-      - name: Regenerate registry and marketplace
-        run: node scripts/marketplace.mjs sync
       - name: Ensure generated files are committed
-        run: git diff --exit-code -- registry/plugins.json marketplace.json
+        run: node scripts/marketplace.mjs sync --check
