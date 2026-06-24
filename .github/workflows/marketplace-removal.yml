@@ -99,7 +99,7 @@ jobs:
           CHANGED: ${{ steps.commit.outputs.changed }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "删除请求已通过权限校验，并已同步 Marketplace。目标：$TARGET；请求者：@$REQUESTER；是否产生新提交：${CHANGED:-unknown}。"
+            gh issue close "$ISSUE_NUMBER" --comment "删除请求已通过权限校验，并已同步 Marketplace。目标：$TARGET；请求者：@$REQUESTER；是否产生新提交：${CHANGED:-unknown}。"
           else
             gh issue comment "$ISSUE_NUMBER" --body "删除请求未通过。网页管理员删除需要由 Marketplace 服务端创建并通过管理员密码校验；评论命令仍只接受插件 GitHub 仓库 owner/maintainer。"
           fi

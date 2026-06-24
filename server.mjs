@@ -231,9 +231,23 @@ function issueHasLabel(issue, labelName) {
   return issueLabelNames(issue).includes(labelName);
 }
 
-async function findExistingRemovalIssue(normalizedUrl) {
-  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
-  return Array.isArray(issues) ? issues.find((issue) => !issue.pull_request && issueHasLabel(issue, 'plugin-removal') && issueMatchesSubmission(issue, normalizedUrl)) : null;
+function removalIssuePluginName(issue) {
+  const text = `${issue.title || ''}\n${issue.body || ''}`;
+  const bodyMatch = text.match(/###\s*删除插件\s*\n([^\n]+)/);
+  const titleMatch = text.match(/删除插件：([^\s(]+)/);
+  return String(bodyMatch?.[1] || titleMatch?.[1] || '').trim();
+}
+
+function issueMatchesPluginRemoval(issue, normalizedUrl, pluginName) {
+  if (issue.pull_request || !issueHasLabel(issue, 'plugin-removal')) return false;
+  const issuePluginName = removalIssuePluginName(issue);
+  if (pluginName && issuePluginName) return issuePluginName === pluginName;
+  return issueMatchesSubmission(issue, normalizedUrl);
+}
+
+async function findExistingRemovalIssue({ normalizedUrl, pluginName }) {
+  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=open&per_page=100`);
+  return Array.isArray(issues) ? issues.find((issue) => issueMatchesPluginRemoval(issue, normalizedUrl, pluginName)) : null;
 }
 
 function extractRepositoryUrlFromIssue(issue) {
@@ -400,15 +414,21 @@ function cleanGithubLogin(value) {
 async function findPluginForRemoval({ pluginName, repositoryUrl }) {
   const registry = await readLocalJson('registry/plugins.json', { plugins: [] });
   const plugins = registry.plugins || [];
-  if (repositoryUrl) {
-    const normalizedUrl = parseGithubRepositoryUrl(repositoryUrl).normalizedUrl;
+  const normalizedUrl = repositoryUrl ? parseGithubRepositoryUrl(repositoryUrl).normalizedUrl : '';
+  if (pluginName) {
+    const plugin = plugins.find((item) => item.name === pluginName && item.installPolicy !== 'REVIEW_ONLY');
+    if (!plugin) throw new Error('没有找到这个已收录插件。');
+    if (normalizedUrl && normalizeRepositoryUrl(plugin.repositoryUrl) !== normalizedUrl) {
+      throw new Error('插件名和 GitHub 仓库不匹配，请刷新页面后重试。');
+    }
+    return plugin;
+  }
+  if (normalizedUrl) {
     const plugin = plugins.find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && item.installPolicy !== 'REVIEW_ONLY');
     if (plugin) return plugin;
     throw new Error('没有找到这个 GitHub 仓库对应的已收录插件。');
   }
-  const plugin = plugins.find((item) => item.name === pluginName && item.installPolicy !== 'REVIEW_ONLY');
-  if (!plugin) throw new Error('没有找到这个已收录插件。');
-  return plugin;
+  throw new Error('没有找到这个已收录插件。');
 }
 
 async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, reason }) {
@@ -418,7 +438,7 @@ async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, re
   }
   const plugin = await findPluginForRemoval({ pluginName, repositoryUrl });
   const { normalizedUrl } = parseGithubRepositoryUrl(plugin.repositoryUrl);
-  const existing = await findExistingRemovalIssue(normalizedUrl);
+  const existing = await findExistingRemovalIssue({ normalizedUrl, pluginName: plugin.name });
   if (existing) {
     await markPluginRemoving({ pluginName: plugin.name, repositoryUrl: normalizedUrl });
     await recordAdminAction({
