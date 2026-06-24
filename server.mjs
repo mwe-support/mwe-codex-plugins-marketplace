@@ -320,15 +320,34 @@ function isAllowedStaticPath(relativePath) {
   return allowedFiles.has(relativePath) || allowedDirs.has(firstSegment);
 }
 
+function isAppShellRoute(pathname) {
+  const firstSegment = pathname.split('/').filter(Boolean)[0];
+  return firstSegment === 'plugins';
+}
+
+async function sendAppShell(response) {
+  const content = await fs.readFile(path.join(ROOT, 'index.html'));
+  response.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'public, max-age=300',
+  });
+  response.end(content);
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
   let pathname = decodeURIComponent(url.pathname);
+  const shouldServeAppShell = isAppShellRoute(pathname);
   if (pathname === '/') pathname = '/index.html';
   if (pathname.endsWith('/')) pathname += 'index.html';
   if (!path.extname(pathname)) pathname = path.join(pathname, 'index.html');
 
   const relativePath = pathname.replace(/^\/+/, '');
   if (!isAllowedStaticPath(relativePath)) {
+    if (shouldServeAppShell) {
+      await sendAppShell(response);
+      return;
+    }
     await sendNotFound(response);
     return;
   }
@@ -348,6 +367,10 @@ async function serveStatic(request, response) {
     });
     response.end(content);
   } catch {
+    if (shouldServeAppShell) {
+      await sendAppShell(response);
+      return;
+    }
     await sendNotFound(response);
   }
 }

@@ -532,11 +532,12 @@ function detailPage(name) {
   if (!plugin) return notFoundPage();
   const installCommand = pluginInstallCommand(plugin);
   return `
-    ${header()}
-    <main id="main" class="page">
-      <div class="detail-layout">
-        <article class="detail-card">
-          <a class="button ghost" href="/" data-link>${icon("arrow-left", "返回插件目录")}</a>
+    <div class="perspective-app">
+      ${header()}
+      <main id="main" class="perspective-page plugin-detail-page">
+        <div class="detail-layout">
+          <article class="detail-card glass-card plugin-detail-card">
+            <a class="perspective-button secondary detail-back" href="/" data-link>${icon("arrow-left", "返回插件目录")}</a>
           <div class="detail-header detail-section">
             <img class="avatar" src="${safe(plugin.avatarUrl)}" alt="${safe(plugin.author)} 头像" loading="lazy" width="64" height="64" />
             <div>
@@ -569,8 +570,8 @@ function detailPage(name) {
           </section>
         </article>
 
-        <aside class="sidebar">
-          <section class="panel">
+          <aside class="sidebar">
+            <section class="panel glass-card">
             <h2>安装入口</h2>
             <p class="helper">可以同步整个 Marketplace，也可以只复制当前插件的仓库链接或 CLI 安装命令。</p>
             <div class="code-box">
@@ -597,16 +598,17 @@ function detailPage(name) {
             </div>
           </section>
 
-          <section class="panel">
-            <h2>来源</h2>
+            <section class="panel glass-card">
+              <h2>来源</h2>
             <div class="form-actions">
-              <a class="button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "打开 GitHub")}</a>
-              <a class="button ghost" href="/submit" data-link>${icon("git-pull-request", "贡献更新")}</a>
+              <a class="perspective-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "打开 GitHub")}</a>
+              <a class="perspective-button secondary" href="/submit" data-link>${icon("git-pull-request", "贡献更新")}</a>
             </div>
           </section>
-        </aside>
-      </div>
-    </main>
+          </aside>
+        </div>
+      </main>
+    </div>
   `;
 }
 
