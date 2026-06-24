@@ -4,9 +4,167 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-24T07:29:12.378Z"
+    "lastUpdated": "2026-06-24T13:32:48.005Z"
   },
   "plugins": [
+    {
+      "name": "context-mode",
+      "displayName": "context-mode",
+      "description": "context-mode 是来自 mksglu/context-mode 的 Codex 插件。",
+      "longDescription": "context-mode 来自 https://github.com/mksglu/context-mode，已通过自动结构校验和静态安全检查。 源仓库说明：**The other half of the context problem.**",
+      "author": "Mert Koseoğlu",
+      "avatarUrl": "https://github.com/mksglu.png?size=96",
+      "category": "Productivity",
+      "tags": [
+        "Productivity",
+        "Auto Reviewed"
+      ],
+      "capabilities": [
+        "Skill",
+        "MCP"
+      ],
+      "version": "1.0.166",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/mksglu/context-mode",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-24T13:32:47.874Z",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/mksglu/context-mode",
+        "ref": "main",
+        "path": "marketplace/snapshots/context-mode",
+        "upstreamPath": ".",
+        "manifestPath": ".codex-plugin/plugin.json"
+      },
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-24T13:32:47.874Z",
+        "reviewer": "marketplace-admin",
+        "method": "admin-manual",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present",
+          "security scan warnings manually approved by marketplace admin"
+        ]
+      },
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "scannedAt": "2026-06-24T13:32:47.871Z",
+        "findings": [
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": ".claude/settings.json",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "cli.bundle.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "cli.bundle.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "cli.bundle.mjs",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "hooks/session-extract.bundle.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "hooks/session-loaders.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "scripts/postinstall.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "server.bundle.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "server.bundle.mjs",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "src/cli.ts",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/cli.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/security.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "src/security.ts",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "src/server.ts",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/session/error-classifier.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/session/extract.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "install-lifecycle-script",
+            "severity": "medium",
+            "path": "package.json",
+            "description": "包含 npm 生命周期脚本 postinstall，需要人工留意安装时行为"
+          }
+        ],
+        "manuallyApproved": true,
+        "approvedAt": "2026-06-24T13:32:47.871Z",
+        "approvedBy": "marketplace-admin"
+      }
+    },
     {
       "name": "context7",
       "displayName": "Context7",
@@ -187,6 +345,136 @@
     }
   ],
   "submissions": [
+    {
+      "id": "mksglu-context-mode-c4764ac37c",
+      "slug": "mksglu-context-mode",
+      "owner": "mksglu",
+      "repo": "context-mode",
+      "displayName": "context-mode",
+      "repositoryUrl": "https://github.com/mksglu/context-mode",
+      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/7",
+      "status": "approved",
+      "submittedAt": "2026-06-24T13:32:46.922Z",
+      "updatedAt": "2026-06-24T13:32:47.955Z",
+      "reviewer": "marketplace-admin",
+      "decision": "approved",
+      "reason": "admin manually approved 1 plugin(s): context-mode",
+      "pluginName": "context-mode",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "scannedAt": "2026-06-24T13:32:47.871Z",
+        "findings": [
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": ".claude/settings.json",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "cli.bundle.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "cli.bundle.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "cli.bundle.mjs",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "hooks/session-extract.bundle.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "hooks/session-loaders.mjs",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "scripts/postinstall.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "server.bundle.mjs",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "server.bundle.mjs",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "src/cli.ts",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/cli.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/security.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "dynamic-code-execution",
+            "severity": "medium",
+            "path": "src/security.ts",
+            "description": "存在动态代码执行，需要人工复核上下文"
+          },
+          {
+            "id": "remote-shell-pipe",
+            "severity": "critical",
+            "path": "src/server.ts",
+            "description": "远程脚本直接管道到 shell 执行"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/session/error-classifier.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "privilege-shell-install",
+            "severity": "high",
+            "path": "src/session/extract.ts",
+            "description": "安装脚本中包含提权或系统级写入动作"
+          },
+          {
+            "id": "install-lifecycle-script",
+            "severity": "medium",
+            "path": "package.json",
+            "description": "包含 npm 生命周期脚本 postinstall，需要人工留意安装时行为"
+          }
+        ],
+        "manuallyApproved": true,
+        "approvedAt": "2026-06-24T13:32:47.871Z",
+        "approvedBy": "marketplace-admin"
+      }
+    },
     {
       "id": "remove-testing-react-native-apps-a883551b58",
       "slug": "testing-react-native-apps",

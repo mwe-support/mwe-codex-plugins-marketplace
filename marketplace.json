@@ -3,8 +3,25 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-24T07:29:12.378Z",
+  "generatedAt": "2026-06-24T13:32:48.005Z",
   "plugins": [
+    {
+      "name": "context-mode",
+      "displayName": "context-mode",
+      "version": "1.0.166",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/mksglu/context-mode",
+      "verifiedStatus": "verified",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/mksglu/context-mode",
+        "ref": "main",
+        "path": "marketplace/snapshots/context-mode",
+        "upstreamPath": ".",
+        "manifestPath": ".codex-plugin/plugin.json"
+      }
+    },
     {
       "name": "context7",
       "displayName": "Context7",
