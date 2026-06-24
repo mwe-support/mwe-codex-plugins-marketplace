@@ -14,7 +14,7 @@ PORT=4173 node server.mjs
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 GITHUB_TOKEN 和 MARKETPLACE_ADMIN_PASSWORD
+# 编辑 .env，填入 GITHUB_TOKEN，并设置 MARKETPLACE_ADMIN_PASSWORD 或 ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
@@ -98,7 +98,7 @@ node scripts/marketplace.mjs approve <submission-id> \
 node scripts/marketplace.mjs sync
 ```
 
-审核通过后网页、`marketplace.json` 和 `.agents/plugins/marketplace.json` 会显示 `verified / synced`。每个已验证插件都会提供插件 GitHub 链接和 `codex plugin add plugin-name@codex-community` 的单插件安装命令。删除已收录插件、删除失败上传请求、或对失败上传请求进行管理员手动通过，都需要网页提交管理员密码；密码由容器环境变量 `MARKETPLACE_ADMIN_PASSWORD` 提供，只在服务端校验，不会写入 GitHub issue。
+审核通过后网页、`marketplace.json` 和 `.agents/plugins/marketplace.json` 会显示 `verified / synced`。每个已验证插件都会提供插件 GitHub 链接和 `codex plugin add plugin-name@codex-community` 的单插件安装命令。删除已收录插件、删除失败上传请求、或对失败上传请求进行管理员手动通过，都需要网页提交管理员密码；密码由容器环境变量 `MARKETPLACE_ADMIN_PASSWORD` 或 `ADMIN_PASSWORD` 提供，只在服务端校验，不会写入 GitHub issue。
 
 ## 自动审核规则
 

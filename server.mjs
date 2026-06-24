@@ -7,7 +7,7 @@ const PORT = Number(process.env.PORT || 80);
 const ROOT = process.cwd();
 const TARGET_REPOSITORY = process.env.MARKETPLACE_GITHUB_REPOSITORY || 'mwe-support/mwe-codex-plugins-marketplace';
 const API_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
-const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || '';
+const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 const MAX_BODY_BYTES = 64 * 1024;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 5);
@@ -52,7 +52,7 @@ function httpError(message, status) {
 
 function verifyAdminPassword(value) {
   if (!ADMIN_PASSWORD) {
-    throw httpError('服务端还没有配置 MARKETPLACE_ADMIN_PASSWORD，暂时无法提交删除请求。', 503);
+    throw httpError('服务端还没有配置 MARKETPLACE_ADMIN_PASSWORD 或 ADMIN_PASSWORD，暂时无法提交删除请求。', 503);
   }
   const expected = Buffer.from(ADMIN_PASSWORD);
   const provided = Buffer.from(String(value || ''));

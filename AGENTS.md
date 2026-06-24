@@ -37,7 +37,7 @@ When adding a page, update this list and verify the new page uses the same theme
 
 ## Interaction Rules
 
-- Deleting a listed plugin, removing a failed upload request, or manually approving a failed upload request must go through the Marketplace admin workflow. The web API must verify `MARKETPLACE_ADMIN_PASSWORD` from the container environment before creating the GitHub Action trigger issue; never trust a frontend-only flag, username, or unauthenticated form field as proof of admin authority.
+- Deleting a listed plugin, removing a failed upload request, or manually approving a failed upload request must go through the Marketplace admin workflow. The web API must verify `MARKETPLACE_ADMIN_PASSWORD` or the supported `ADMIN_PASSWORD` alias from the container environment before creating the GitHub Action trigger issue; never trust a frontend-only flag, username, or unauthenticated form field as proof of admin authority.
 - Duplicate plugin submissions are detected by normalized GitHub repository URL and should return a clear user-facing message instead of creating another review issue.
 - Theme switching must not rebuild the whole app or reset the current route. Update theme attributes and pressed states in place.
 - Copy buttons should show a toast and remain usable after theme changes and route changes.
