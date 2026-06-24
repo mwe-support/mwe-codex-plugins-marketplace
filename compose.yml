@@ -1,12 +1,32 @@
 name: marvel-local-server
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: marvel-local-server-mwe-codex-marketplace-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mwe_codex_marketplace}
+      POSTGRES_USER: ${POSTGRES_USER:-mwe_marketplace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mwe_marketplace_dev}
+    volumes:
+      - mwe-codex-marketplace-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mwe_marketplace} -d ${POSTGRES_DB:-mwe_codex_marketplace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   mwe-codex-marketplace:
     build:
       context: .
     image: mwe-codex-plugins-marketplace:local
     container_name: marvel-local-server-mwe-codex-marketplace
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8787:80"
     environment:
@@ -15,6 +35,7 @@ services:
       GH_TOKEN: ${GH_TOKEN:-}
       MARKETPLACE_ADMIN_PASSWORD: ${MARKETPLACE_ADMIN_PASSWORD:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      DATABASE_URL: ${DATABASE_URL:-postgres://mwe_marketplace:mwe_marketplace_dev@postgres:5432/mwe_codex_marketplace}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -31,3 +52,6 @@ services:
       mwe-codex-marketplace:
         condition: service_healthy
     command: tunnel --no-autoupdate run --token $$CLOUDFLARE_TUNNEL_TOKEN
+
+volumes:
+  mwe-codex-marketplace-postgres:

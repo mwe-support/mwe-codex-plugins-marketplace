@@ -2,6 +2,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import {
+  createSubmissionState,
+  dbAvailable,
+  findPluginByRepositoryFromDb,
+  findSubmissionByRepositoryFromDb,
+  listSubmissionsFromDb,
+  markPluginRemoving,
+  markSubmissionManualApproving,
+  markSubmissionRemoved,
+  readRegistryFromDb,
+  recordAdminAction,
+} from './db.mjs';
 
 const PORT = Number(process.env.PORT || 80);
 const ROOT = process.cwd();
@@ -40,7 +52,7 @@ function sendJson(response, status, payload) {
 function responseStatusForError(error) {
   if (error instanceof SyntaxError) return 400;
   if (error.status) return error.status;
-  if (/请输入|没有找到|只接受|需要|不合法|格式不正确/.test(error.message || '')) return 400;
+  if (/请输入|没有找到|只接受|需要|不合法|格式不正确|未知/.test(error.message || '')) return 400;
   return 500;
 }
 
@@ -196,12 +208,16 @@ function normalizeRepositoryUrl(value) {
 }
 
 async function findRegistryPluginByRepository(repositoryUrl) {
+  const dbPlugin = await findPluginByRepositoryFromDb(repositoryUrl);
+  if (dbPlugin) return dbPlugin;
   const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
   const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
   return (registry.plugins || []).find((plugin) => normalizeRepositoryUrl(plugin.repositoryUrl) === normalizedUrl) || null;
 }
 
 async function findRegistrySubmissionByRepository(repositoryUrl) {
+  const dbSubmission = await findSubmissionByRepositoryFromDb(repositoryUrl);
+  if (dbSubmission) return dbSubmission;
   const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
   const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
   return (registry.submissions || []).find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && ['reviewing', 'approved'].includes(item.status)) || null;
@@ -244,6 +260,8 @@ function localSubmissionMap(registry) {
 }
 
 async function listSubmissionProgress() {
+  const dbSubmissions = await listSubmissionsFromDb();
+  if (dbSubmissions) return dbSubmissions;
   const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
   const localByRepo = localSubmissionMap(registry);
   const items = new Map();
@@ -363,6 +381,8 @@ async function createSubmissionIssue({ repositoryUrl, note }) {
     });
   }
 
+  await createSubmissionState({ repositoryUrl: normalizedUrl, issueUrl: issue.html_url, note });
+
   return {
     duplicate: false,
     issueNumber: issue.number,
@@ -400,6 +420,16 @@ async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, re
   const { normalizedUrl } = parseGithubRepositoryUrl(plugin.repositoryUrl);
   const existing = await findExistingRemovalIssue(normalizedUrl);
   if (existing) {
+    await markPluginRemoving({ pluginName: plugin.name, repositoryUrl: normalizedUrl });
+    await recordAdminAction({
+      actionType: 'plugin-removal',
+      targetType: 'plugin',
+      targetId: plugin.name,
+      repositoryUrl: normalizedUrl,
+      status: 'queued',
+      issueUrl: existing.html_url,
+      message: 'existing plugin removal request reused',
+    });
     return {
       duplicate: true,
       issueNumber: existing.number,
@@ -435,6 +465,17 @@ async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, re
       body: { title: `删除插件：${plugin.name} (${normalizedUrl})`, body },
     });
   }
+
+  await markPluginRemoving({ pluginName: plugin.name, repositoryUrl: normalizedUrl });
+  await recordAdminAction({
+    actionType: 'plugin-removal',
+    targetType: 'plugin',
+    targetId: plugin.name,
+    repositoryUrl: normalizedUrl,
+    status: 'queued',
+    issueUrl: issue.html_url,
+    message: 'plugin removal requested',
+  });
 
   return {
     duplicate: false,
@@ -498,6 +539,17 @@ async function createAdminSubmissionIssue({ action, submissionId, repositoryUrl,
       method: 'POST',
       body: { body },
     });
+    if (action === 'remove-submission') await markSubmissionRemoved(normalizedUrl);
+    if (action === 'manual-approve') await markSubmissionManualApproving(normalizedUrl);
+    await recordAdminAction({
+      actionType: action,
+      targetType: 'submission',
+      targetId: submissionId || owner + '-' + repo,
+      repositoryUrl: normalizedUrl,
+      status: 'queued',
+      issueUrl: existing.html_url,
+      message: actionMap[action].message,
+    });
     return {
       action,
       issueNumber: existing.number,
@@ -524,6 +576,18 @@ async function createAdminSubmissionIssue({ action, submissionId, repositoryUrl,
       body: { title: `${actionMap[action].label}：${owner}/${repo}`, body },
     });
   }
+  if (action === 'remove-submission') await markSubmissionRemoved(normalizedUrl);
+  if (action === 'manual-approve') await markSubmissionManualApproving(normalizedUrl);
+  await recordAdminAction({
+    actionType: action,
+    targetType: 'submission',
+    targetId: submissionId || owner + '-' + repo,
+    repositoryUrl: normalizedUrl,
+    status: 'queued',
+    issueUrl: issue.html_url,
+    message: actionMap[action].message,
+  });
+
   return {
     action,
     issueNumber: issue.number,
@@ -646,8 +710,19 @@ async function serveStatic(request, response) {
   }
 
   try {
-    const content = await fs.readFile(absolutePath);
-    const extension = path.extname(absolutePath);
+    const stat = await fs.lstat(absolutePath);
+    if (stat.isSymbolicLink()) {
+      await sendNotFound(response);
+      return;
+    }
+    const realPath = await fs.realpath(absolutePath);
+    const realRoot = await fs.realpath(ROOT);
+    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
+      await sendNotFound(response);
+      return;
+    }
+    const content = await fs.readFile(realPath);
+    const extension = path.extname(realPath);
     response.writeHead(200, {
       'Content-Type': mimeTypes.get(extension) || 'application/octet-stream',
       'Cache-Control': extension === '.json' ? 'no-store' : 'public, max-age=300',
@@ -675,7 +750,18 @@ async function sendNotFound(response) {
 
 const server = http.createServer((request, response) => {
   if (request.url?.startsWith('/api/health')) {
-    sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY });
+    dbAvailable()
+      .then((database) => sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY, database }))
+      .catch(() => sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY, database: false }));
+    return;
+  }
+  if (request.method === 'GET' && request.url?.split('?')[0] === '/registry/plugins.json') {
+    readRegistryFromDb()
+      .then((registry) => {
+        if (registry) sendJson(response, 200, registry);
+        else serveStatic(request, response);
+      })
+      .catch(() => serveStatic(request, response));
     return;
   }
   if (request.url?.startsWith('/api/admin/submissions')) {

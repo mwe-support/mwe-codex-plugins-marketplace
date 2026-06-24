@@ -33,7 +33,13 @@ let state = {
   adminReviewSuccessMessage: "",
   optimisticRemovedRepositories: [],
   optimisticRemovedPluginNames: [],
+  liveStatus: "loading",
+  liveError: "",
+  lastLiveSyncAt: "",
 };
+
+let marketplaceSyncTimer = 0;
+let marketplaceSyncInFlight = false;
 
 const statusLabel = {
   verified: "已验证",
@@ -177,7 +183,12 @@ async function loadRegistry() {
     registry = await response.json();
     registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
     registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
+    state.liveStatus = "live";
+    state.liveError = "";
+    state.lastLiveSyncAt = new Date().toISOString();
   } catch {
+    state.liveStatus = "stale";
+    state.liveError = "Registry 加载失败";
     showToast("Registry 加载失败，正在显示空状态");
     registry = { marketplace: {}, plugins: [], submissions: [] };
   }
@@ -186,10 +197,10 @@ async function loadRegistry() {
   loadReviewItems();
 }
 
-async function loadReviewItems() {
-  state.reviewsLoading = true;
+async function loadReviewItems({ silent = false } = {}) {
+  if (!silent) state.reviewsLoading = true;
   state.reviewsError = "";
-  if (state.route.startsWith("/reviews")) render();
+  if (!silent && state.route.startsWith("/reviews")) render();
   try {
     const response = await fetch("/api/submissions", { cache: "no-store" });
     const payload = await response.json();
@@ -199,9 +210,75 @@ async function loadReviewItems() {
     state.reviews = withoutOptimisticallyRemoved(registry.submissions || []);
     state.reviewsError = error.message || "审核进度加载失败";
   } finally {
-    state.reviewsLoading = false;
-    if (state.route.startsWith("/reviews")) render();
+    if (!silent) state.reviewsLoading = false;
+    if (!silent && state.route.startsWith("/reviews")) render();
   }
+}
+
+function stateFingerprint() {
+  return JSON.stringify({
+    plugins: (registry.plugins || []).map((plugin) => [
+      plugin.name,
+      plugin.version,
+      plugin.verifiedStatus,
+      plugin.syncStatus,
+      plugin.stateStatus,
+      plugin.securityScan?.status,
+      plugin.syncTimestamp,
+    ]),
+    submissions: (state.reviews || []).map((item) => [
+      item.id,
+      item.repositoryUrl,
+      item.status,
+      item.issueUrl,
+      item.updatedAt,
+      item.securityScan?.status,
+    ]),
+    liveStatus: state.liveStatus,
+  });
+}
+
+function shouldRenderLiveUpdate() {
+  return (
+    state.route === "/" ||
+    state.route.startsWith("/perspective") ||
+    state.route.startsWith("/reviews") ||
+    state.route.startsWith("/plugins/")
+  );
+}
+
+async function syncMarketplaceState({ renderOnChange = true } = {}) {
+  if (marketplaceSyncInFlight) return;
+  marketplaceSyncInFlight = true;
+  const previousFingerprint = stateFingerprint();
+  try {
+    const response = await fetch("/registry/plugins.json", { cache: "no-store" });
+    if (!response.ok) throw new Error("Registry 同步失败");
+    const nextRegistry = await response.json();
+    registry = nextRegistry || { marketplace: {}, plugins: [], submissions: [] };
+    registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
+    registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
+    await loadReviewItems({ silent: true });
+    state.liveStatus = "live";
+    state.liveError = "";
+    state.lastLiveSyncAt = new Date().toISOString();
+  } catch (error) {
+    state.liveStatus = "stale";
+    state.liveError = error.message || "实时同步暂时不可用";
+  } finally {
+    marketplaceSyncInFlight = false;
+  }
+
+  if (renderOnChange && shouldRenderLiveUpdate() && stateFingerprint() !== previousFingerprint) {
+    render();
+  }
+}
+
+function startMarketplaceSync() {
+  window.clearInterval?.(marketplaceSyncTimer);
+  marketplaceSyncTimer = window.setInterval?.(() => {
+    syncMarketplaceState({ renderOnChange: true });
+  }, 5000) || 0;
 }
 
 function categories() {
@@ -295,6 +372,18 @@ function pluginCopyActions(plugin, variant = "card") {
   `;
 }
 
+function liveStatusLabel() {
+  if (state.liveStatus === "live") return "实时同步";
+  if (state.liveStatus === "loading") return "同步中";
+  return "稍后重试";
+}
+
+function liveStatusIcon() {
+  if (state.liveStatus === "live") return "radio";
+  if (state.liveStatus === "loading") return "loader-circle";
+  return "wifi-off";
+}
+
 function header() {
   const mode = themeMode();
   const navItems = [
@@ -324,6 +413,7 @@ function header() {
             .join("")}
         </nav>
         <div class="top-actions">
+          <span class="live-pill ${safe(state.liveStatus)}" title="${safe(state.liveError || (state.lastLiveSyncAt ? `最近同步：${formatShanghaiDateTime(state.lastLiveSyncAt)}` : "正在连接实时状态"))}">${icon(liveStatusIcon(), liveStatusLabel())}</span>
           <div class="theme-switch" role="group" aria-label="主题模式">
             ${[
               ["system", "monitor", "跟随系统"],
@@ -1138,3 +1228,4 @@ window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change"
 
 applyTheme();
 loadRegistry();
+startMarketplaceSync();

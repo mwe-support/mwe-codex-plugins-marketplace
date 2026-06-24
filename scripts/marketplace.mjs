@@ -58,6 +58,7 @@ function walkFiles(dir, files = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === '.git' || entry.name === 'node_modules') continue;
     const file = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) throw new Error('不允许插件目录包含符号链接：' + normalizePathForJson(path.relative(ROOT, file)));
     if (entry.isDirectory()) walkFiles(file, files);
     else files.push(file);
   }
@@ -71,7 +72,15 @@ function readTextIfExists(file) {
 function copySnapshotDirectory(sourceDir, targetDir) {
   fs.cpSync(sourceDir, targetDir, {
     recursive: true,
-    filter: (source) => !path.relative(sourceDir, source).split(path.sep).includes('.git'),
+    filter: (source) => {
+      const relative = path.relative(sourceDir, source);
+      if (relative.split(path.sep).includes('.git')) return false;
+      const stat = fs.lstatSync(source);
+      if (stat.isSymbolicLink()) {
+        throw new Error('不允许复制符号链接到插件快照：' + normalizePathForJson(relative));
+      }
+      return true;
+    },
   });
 }
 
@@ -875,9 +884,20 @@ async function commandRemove(args) {
     fs.rmSync(path.join(ROOT, snapshotPath), { recursive: true, force: true });
   }
   fs.rmSync(file, { force: true });
-  removeSubmissionFilesForRepository(plugin.repositoryUrl);
+  const remainingRecords = pluginRecordsForRepository(plugin.repositoryUrl).filter((item) => item.file !== file);
+  if (!remainingRecords.length) removeSubmissionFilesForRepository(plugin.repositoryUrl);
   upsertRemovalRecord(plugin, args, verified);
   console.log('removed ' + plugin.name + '; requester @' + verified.login + ' permission=' + verified.permission);
+}
+
+function walkFilesAllowingErrors(dir, files = []) {
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    files.push(file);
+    if (entry.isDirectory()) walkFilesAllowingErrors(file, files);
+  }
+  return files;
 }
 
 function commandRemoveSubmission(args) {
@@ -892,7 +912,8 @@ function commandRemoveSubmission(args) {
     const repo = parseGithubRepo(ref);
     submission = { id: repo.owner + '-' + repo.repo, repositoryUrl: repo.repositoryUrl };
   }
-  const records = pluginRecordsForRepository(submission.repositoryUrl);
+  const records = pluginRecordsForRepository(submission.repositoryUrl)
+    .filter(({ plugin }) => plugin.installPolicy === 'REVIEW_ONLY' || plugin.syncStatus === 'failed' || plugin.securityScan?.blocked || plugin.securityScan?.status === 'blocked');
   removePluginRecordFiles(records);
   removeSubmissionFilesForRepository(submission.repositoryUrl);
   if (submissionFile) fs.rmSync(submissionFile, { force: true });
@@ -901,6 +922,13 @@ function commandRemoveSubmission(args) {
 
 function commandValidate() {
   const errors = [];
+  for (const file of walkFilesAllowingErrors(SNAPSHOT_DIR)) {
+    try {
+      if (fs.lstatSync(file).isSymbolicLink()) errors.push(`${path.relative(ROOT, file)}: 快照中不允许符号链接`);
+    } catch (error) {
+      errors.push(`${path.relative(ROOT, file)}: ${error.message}`);
+    }
+  }
   for (const file of listJson(PLUGIN_DIR)) {
     try {
       const plugin = readJson(file);

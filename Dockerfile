@@ -4,7 +4,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=80
 
-COPY index.html 404.html app.js styles.css marketplace.json server.mjs ./
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY index.html 404.html app.js styles.css marketplace.json server.mjs db.mjs ./
 COPY assets ./assets
 COPY registry ./registry
 COPY marketplace ./marketplace
@@ -14,6 +17,8 @@ COPY install ./install
 COPY submit ./submit
 COPY perspective ./perspective
 COPY reviews ./reviews
+COPY migrations ./migrations
+COPY scripts ./scripts
 
 RUN chmod -R a+rX /app
 

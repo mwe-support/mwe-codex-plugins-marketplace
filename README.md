@@ -24,6 +24,17 @@ docker compose up -d --build
 http://127.0.0.1:8787
 ```
 
+首次启动或 schema 更新后，初始化数据库并导入当前 registry：
+
+```bash
+docker compose run --rm mwe-codex-marketplace npm run db:migrate
+docker compose run --rm mwe-codex-marketplace npm run db:import
+```
+
+PostgreSQL 是网页端的实时状态源：提交、删除请求、管理员手动通过等操作会先写入数据库，前端每 5 秒轻量同步 `/registry/plugins.json` 和 `/api/submissions`，因此无需等待静态 registry 文件重新生成才更新页面。GitHub 中的 `marketplace/*.json`、`registry/plugins.json`、`marketplace.json` 和 `.agents/plugins/marketplace.json` 仍然是可审计、可安装的最终发布源。
+
+Redis 暂不引入。当前单容器 web 服务加 PostgreSQL 足够承载即时反馈和持久状态；后续出现多实例实时广播、后台任务队列、管理员操作限流或 GitHub webhook 去抖需求时，再补 Redis 更合适。
+
 容器名：
 
 ```text

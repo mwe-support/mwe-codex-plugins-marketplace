@@ -1,0 +1,31 @@
+{
+  "name": "mwe-codex-plugins-marketplace",
+  "version": "1.0.0",
+  "description": "一个由中央 GitHub 仓库驱动的 Codex 插件共享市场。当前仓库只保留已确定的 Perspective UI 方案，默认 registry 从空列表开始，方便真实测试插件分享、审核、合并和同步。",
+  "main": "server.mjs",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check server.mjs && node --check scripts/marketplace.mjs && node --check db.mjs && node scripts/marketplace.mjs validate && node scripts/marketplace.mjs sync --check",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:import": "node scripts/import-registry-to-db.mjs",
+    "test:marketplace": "node scripts/test-marketplace-flow.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mwe-support/mwe-codex-plugins-marketplace.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues"
+  },
+  "homepage": "https://github.com/mwe-support/mwe-codex-plugins-marketplace#readme",
+  "dependencies": {
+    "pg": "^8.22.0"
+  },
+  "type": "module"
+}
