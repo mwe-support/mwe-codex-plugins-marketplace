@@ -2311,6 +2311,15 @@ body {
   border-color: var(--ps-border-strong);
 }
 
+.perspective-button.danger {
+  border-color: color-mix(in srgb, var(--ps-danger) 48%, var(--ps-border));
+  color: color-mix(in srgb, var(--ps-danger) 72%, var(--ps-heading));
+}
+
+.perspective-button.danger:hover {
+  background: color-mix(in srgb, var(--ps-danger) 18%, transparent);
+}
+
 .perspective-button.wide {
   width: 100%;
   margin-top: 16px;
@@ -3364,6 +3373,76 @@ body {
   color: var(--ps-body);
   font-size: 12px;
   line-height: 1.55;
+}
+
+.admin-review-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid var(--ps-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ps-glass) 76%, transparent);
+}
+
+.admin-review-form label {
+  color: var(--ps-heading);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-action-row input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--ps-border);
+  border-radius: 14px;
+  background: var(--ps-neutral-medium);
+  color: var(--ps-heading);
+  box-shadow: var(--ps-shadow-xs);
+}
+
+.admin-action-row input:focus {
+  border-color: var(--ps-brand);
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ps-brand) 42%, transparent);
+}
+
+.admin-review-form .error-text {
+  min-height: 16px;
+  margin: 0;
+  color: #fecdd3;
+  font-size: 12px;
+}
+
+.admin-review-form .success-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  border-radius: 14px;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+:root[data-theme="light"] .admin-action-row input {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+:root[data-theme="light"] .admin-review-form .error-text {
+  color: #be123c;
+}
+
+@media (max-width: 720px) {
+  .admin-action-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .review-empty,

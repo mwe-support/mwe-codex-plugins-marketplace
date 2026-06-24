@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 
 const PORT = Number(process.env.PORT || 80);
 const ROOT = process.cwd();
 const TARGET_REPOSITORY = process.env.MARKETPLACE_GITHUB_REPOSITORY || 'mwe-support/mwe-codex-plugins-marketplace';
 const API_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || '';
 const MAX_BODY_BYTES = 64 * 1024;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 5);
@@ -37,9 +39,27 @@ function sendJson(response, status, payload) {
 
 function responseStatusForError(error) {
   if (error instanceof SyntaxError) return 400;
-  if (error.status && error.status < 500) return error.status;
+  if (error.status) return error.status;
   if (/请输入|没有找到|只接受|需要|不合法|格式不正确/.test(error.message || '')) return 400;
   return 500;
+}
+
+function httpError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function verifyAdminPassword(value) {
+  if (!ADMIN_PASSWORD) {
+    throw httpError('服务端还没有配置 MARKETPLACE_ADMIN_PASSWORD，暂时无法提交删除请求。', 503);
+  }
+  const expected = Buffer.from(ADMIN_PASSWORD);
+  const provided = Buffer.from(String(value || ''));
+  const matches = provided.length === expected.length && timingSafeEqual(provided, expected);
+  if (!matches) {
+    throw httpError('管理员密码不正确，请确认后再提交删除请求。', 401);
+  }
 }
 
 function clientIp(request) {
@@ -146,6 +166,13 @@ async function findExistingIssue(normalizedUrl) {
   return Array.isArray(issues) ? issues.find((issue) => issueMatchesSubmission(issue, normalizedUrl)) : null;
 }
 
+async function findExistingSubmissionIssue(normalizedUrl) {
+  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
+  return Array.isArray(issues)
+    ? issues.find((issue) => !issue.pull_request && issueHasLabel(issue, 'plugin-submission') && issueMatchesSubmission(issue, normalizedUrl))
+    : null;
+}
+
 function truncateNote(value) {
   const note = String(value || '').trim();
   if (!note) return '无';
@@ -201,7 +228,8 @@ function extractRepositoryUrlFromIssue(issue) {
 
 function reviewStatusFromIssue(issue, comments = []) {
   const commentText = comments.map((comment) => comment.body || '').join('\n');
-  if (/自动审核通过/.test(commentText)) return 'approved';
+  if (/管理员已删除上传请求|上传请求已由管理员删除/.test(commentText)) return 'removed';
+  if (/自动审核通过|管理员手动通过/.test(commentText)) return 'approved';
   if (/自动审核未通过|安全扫描未通过/.test(commentText)) return 'failed';
   if (issue.state === 'closed') return 'closed';
   return 'reviewing';
@@ -235,6 +263,7 @@ async function listSubmissionProgress() {
       const local = repositoryUrl ? localByRepo.get(repositoryUrl) : null;
       const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
       const status = local?.status === 'approved' ? 'approved' : issueStatus;
+      if (status === 'removed') continue;
       const latestActionComment = [...(comments || [])].reverse().find((comment) => comment.user?.login === 'github-actions');
       const repoParts = repositoryUrl ? repositoryUrl.split('/').slice(-2) : [];
       items.set(repositoryUrl || issue.html_url, {
@@ -359,13 +388,13 @@ async function findPluginForRemoval({ pluginName, repositoryUrl }) {
   return plugin;
 }
 
-async function createRemovalIssue({ pluginName, repositoryUrl, requester, reason }) {
+async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, reason }) {
+  verifyAdminPassword(adminPassword);
   if (!API_TOKEN) {
     throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建删除请求。');
   }
   const plugin = await findPluginForRemoval({ pluginName, repositoryUrl });
-  const { normalizedUrl, owner, repo } = parseGithubRepositoryUrl(plugin.repositoryUrl);
-  const requesterLogin = cleanGithubLogin(requester);
+  const { normalizedUrl } = parseGithubRepositoryUrl(plugin.repositoryUrl);
   const existing = await findExistingRemovalIssue(normalizedUrl);
   if (existing) {
     return {
@@ -380,12 +409,12 @@ async function createRemovalIssue({ pluginName, repositoryUrl, requester, reason
   const labels = ['plugin-removal', 'removal-needed'];
   try {
     await ensureLabel('plugin-removal', 'be123c', 'Codex marketplace plugin removal request');
-    await ensureLabel('removal-needed', 'f97316', 'Needs repository owner or maintainer verification');
+    await ensureLabel('removal-needed', 'f97316', 'Marketplace admin approved removal request');
   } catch (error) {
     console.warn(`Label setup skipped: ${error.message}`);
   }
 
-  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 请求者 GitHub 用户名\n@${requesterLogin}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 权限校验\n自动流程只信任 GitHub issue 创建者或评论者的真实账号权限。网页表单会创建追踪请求；仓库 owner 或 maintainer 需要在这个 issue 中评论 \`/marketplace remove ${normalizedUrl}\` 才能自动删除。校验失败时不会从 Marketplace 删除插件。`;
+  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 管理员校验\nMarketplace 管理员密码校验已通过。这个 issue 由网页服务端创建，仅作为审计记录和自动删除任务入口；管理员密码不会写入 issue。`;
   let issue;
   try {
     issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
@@ -429,18 +458,105 @@ async function handleRemoval(request, response) {
     const result = await createRemovalIssue({
       pluginName: payload.pluginName,
       repositoryUrl: payload.repositoryUrl,
-      requester: payload.requester,
+      adminPassword: payload.adminPassword,
       reason: payload.reason,
     });
     sendJson(response, result.duplicate ? 200 : 201, {
       ...result,
-      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '已提交删除请求。仓库 owner/maintainer 需要在 GitHub issue 中确认后才会自动删除。',
+      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '管理员校验已通过，删除任务已提交到 GitHub Action。',
     });
   } catch (error) {
     const status = responseStatusForError(error);
     sendJson(response, status, { error: error.message || '删除请求提交失败，请稍后重试。' });
   }
 }
+async function createAdminSubmissionIssue({ action, submissionId, repositoryUrl, adminPassword, reason }) {
+  verifyAdminPassword(adminPassword);
+  if (!API_TOKEN) {
+    throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建管理员操作 issue。');
+  }
+  const actionMap = {
+    'manual-approve': { label: '手动通过上传请求', message: '管理员校验已通过，手动通过任务已提交到 GitHub Action。' },
+    'remove-submission': { label: '删除上传请求', message: '管理员校验已通过，删除上传请求任务已提交到 GitHub Action。' },
+  };
+  if (!actionMap[action]) throw new Error('未知的管理员操作。');
+  const { normalizedUrl, owner, repo } = parseGithubRepositoryUrl(repositoryUrl);
+  const labels = ['plugin-submission', 'admin-review'];
+  try {
+    await ensureLabel('plugin-submission', '2563eb', 'Codex marketplace plugin submission');
+    await ensureLabel('admin-review', '7c3aed', 'Marketplace admin action');
+  } catch (error) {
+    console.warn(`Label setup skipped: ${error.message}`);
+  }
+  const body = `### 管理员操作\n${action}\n\n### 提交仓库\n${normalizedUrl}\n\n### 提交 ID\n${truncateNote(submissionId || owner + '-' + repo)}\n\n### 操作原因\n${truncateNote(reason)}\n\n### 管理员校验\nMarketplace 管理员密码校验已通过。这个评论由网页服务端创建，仅作为审计记录和自动处理任务入口；管理员密码不会写入 issue。`;
+  const existing = await findExistingSubmissionIssue(normalizedUrl);
+  if (existing) {
+    await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${existing.number}/comments`, {
+      method: 'POST',
+      body: { body },
+    });
+    return {
+      action,
+      issueNumber: existing.number,
+      issueUrl: existing.html_url,
+      repositoryUrl: normalizedUrl,
+      message: actionMap[action].message,
+    };
+  }
+
+  let issue;
+  try {
+    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
+      method: 'POST',
+      body: {
+        title: `${actionMap[action].label}：${owner}/${repo}`,
+        body,
+        labels,
+      },
+    });
+  } catch (error) {
+    if (error.status !== 422) throw error;
+    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
+      method: 'POST',
+      body: { title: `${actionMap[action].label}：${owner}/${repo}`, body },
+    });
+  }
+  return {
+    action,
+    issueNumber: issue.number,
+    issueUrl: issue.html_url,
+    repositoryUrl: normalizedUrl,
+    message: actionMap[action].message,
+  };
+}
+
+async function handleAdminSubmission(request, response) {
+  if (request.method !== 'POST') {
+    response.writeHead(405, { Allow: 'POST' });
+    response.end();
+    return;
+  }
+  if (!checkRateLimit(request)) {
+    sendJson(response, 429, { error: '请求太频繁了，请稍后再试。' });
+    return;
+  }
+  try {
+    const rawBody = await readRequestBody(request);
+    const payload = rawBody ? JSON.parse(rawBody) : {};
+    const result = await createAdminSubmissionIssue({
+      action: payload.action,
+      submissionId: payload.submissionId,
+      repositoryUrl: payload.repositoryUrl,
+      adminPassword: payload.adminPassword,
+      reason: payload.reason,
+    });
+    sendJson(response, 201, result);
+  } catch (error) {
+    const status = responseStatusForError(error);
+    sendJson(response, status, { error: error.message || '管理员操作提交失败，请稍后重试。' });
+  }
+}
+
 async function handleSubmission(request, response) {
   if (request.method === 'GET') {
     try {
@@ -557,6 +673,10 @@ async function sendNotFound(response) {
 const server = http.createServer((request, response) => {
   if (request.url?.startsWith('/api/health')) {
     sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY });
+    return;
+  }
+  if (request.url?.startsWith('/api/admin/submissions')) {
+    handleAdminSubmission(request, response);
     return;
   }
   if (request.url?.startsWith('/api/submissions')) {

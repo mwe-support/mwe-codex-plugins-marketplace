@@ -27,9 +27,10 @@ function usage() {
 Commands:
   submit <github-url> [--note text] [--by name]
   approve <submission-id-or-file> [metadata flags]
-  auto-review <submission-id-or-file|github-url> [--by name] [--ref ref]
+  auto-review <submission-id-or-file|github-url> [--by name] [--ref ref] [--manual-approve true]
   reject <submission-id-or-file> --reason text
-  remove <plugin-name-or-github-url> --by github-login [--reason text] [--issue url]
+  remove <plugin-name-or-github-url> --by github-login [--reason text] [--issue url] [--admin-approved true]
+  remove-submission <submission-id-or-github-url> [--reason text] [--by name] [--issue url]
   sync [--check]
   validate
 
@@ -186,10 +187,21 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
     const readme = readTextIfExists(path.join(pluginDir, 'README.md'));
     const errors = validateSourcePlugin(manifest, pluginDir);
     if (errors.length) throw new Error('自动审核失败：' + relativePluginDir + '\n- ' + errors.join('\n- '));
-    const securityScan = scanPluginSecurity(pluginDir);
-    if (securityScan.blocked) {
+    let securityScan = scanPluginSecurity(pluginDir);
+    const manualApprove = args['manual-approve'] === true || args['manual-approve'] === 'true';
+    if (securityScan.blocked && !manualApprove) {
       const summary = securityScan.findings.map((finding) => `${finding.severity} ${finding.id} at ${finding.path}: ${finding.description}`).join('\n- ');
       throw new Error('安全扫描未通过：' + relativePluginDir + '\n- ' + summary);
+    }
+    if (securityScan.blocked && manualApprove) {
+      securityScan = {
+        ...securityScan,
+        status: 'warnings',
+        blocked: false,
+        manuallyApproved: true,
+        approvedAt: now(),
+        approvedBy: args.by || 'marketplace-admin',
+      };
     }
     const iface = manifest.interface || {};
     const ref = args.ref || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoDir }) || 'main';
@@ -232,13 +244,13 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
         status: 'approved',
         reviewedAt: timestamp,
         reviewer: args.by || 'marketplace-bot',
-        method: 'auto-rules',
+        method: args['manual-approve'] === true || args['manual-approve'] === 'true' ? 'admin-manual' : 'auto-rules',
         rules: [
           'public GitHub repository cloned',
           '.codex-plugin/plugin.json discovered',
           'manifest identity, version, interface and capability fields valid',
           'README and declared skills/mcp paths present',
-          securityScan.status === 'passed' ? 'security scan passed' : 'security scan completed with warnings',
+          securityScan.manuallyApproved ? 'security scan warnings manually approved by marketplace admin' : securityScan.status === 'passed' ? 'security scan passed' : 'security scan completed with warnings',
         ],
       },
     };
@@ -517,6 +529,68 @@ function buildAgentsMarketplace(registry) {
   };
 }
 
+function pluginRecordsForRepository(repositoryUrl) {
+  const repo = parseGithubRepo(repositoryUrl);
+  return listJson(PLUGIN_DIR)
+    .map((file) => ({ file, plugin: readJson(file) }))
+    .filter((item) => parseGithubRepo(item.plugin.repositoryUrl).repositoryUrl === repo.repositoryUrl);
+}
+
+function removePluginRecordFiles(records) {
+  for (const { file, plugin } of records) {
+    const snapshotPath = plugin.source?.type === 'local-snapshot' ? plugin.source?.path : null;
+    if (snapshotPath && snapshotPath.startsWith('marketplace/snapshots/')) {
+      fs.rmSync(path.join(ROOT, snapshotPath), { recursive: true, force: true });
+    }
+    fs.rmSync(file, { force: true });
+  }
+}
+
+function manualApproveExistingPlugins(submission, submissionFile, args) {
+  const records = pluginRecordsForRepository(submission.repositoryUrl)
+    .filter((item) => item.plugin.installPolicy === 'REVIEW_ONLY' || item.plugin.securityScan?.blocked || item.plugin.securityScan?.status === 'blocked');
+  if (!records.length) {
+    console.log('submission already approved: ' + submission.id);
+    return;
+  }
+  const timestamp = now();
+  for (const { file, plugin } of records) {
+    const scan = plugin.securityScan || { status: 'pending', findings: [] };
+    plugin.verifiedStatus = 'verified';
+    plugin.syncStatus = 'synced';
+    plugin.syncTimestamp = timestamp;
+    plugin.installPolicy = 'AVAILABLE';
+    plugin.securityScan = {
+      ...scan,
+      status: scan.status === 'passed' ? 'passed' : 'warnings',
+      blocked: false,
+      manuallyApproved: true,
+      approvedAt: timestamp,
+      approvedBy: args.by || 'marketplace-admin',
+    };
+    plugin.review = {
+      ...(plugin.review || {}),
+      status: 'approved',
+      decision: 'approved',
+      reviewer: args.by || 'marketplace-admin',
+      reason: args.reason || 'Marketplace admin manually approved blocked security scan findings.',
+      reviewedAt: timestamp,
+    };
+    writeJson(file, plugin);
+  }
+  submission.status = 'approved';
+  submission.updatedAt = timestamp;
+  submission.review = {
+    ...(submission.review || {}),
+    reviewer: args.by || 'marketplace-admin',
+    decision: 'approved',
+    reason: 'admin manually approved existing plugin(s): ' + records.map((item) => item.plugin.name).join(', '),
+    reviewedAt: timestamp,
+  };
+  writeJson(submissionFile, submission);
+  console.log('admin-approved existing plugin(s): ' + records.map((item) => item.plugin.name).join(', '));
+}
+
 function commandSubmit(args) {
   const url = args._[0];
   if (!url) throw new Error('submit 需要 GitHub 仓库 URL');
@@ -621,6 +695,10 @@ function commandAutoReview(args) {
   }
   const submission = readJson(submissionFile);
   if (submission.status === 'approved') {
+    if (args['manual-approve'] === true || args['manual-approve'] === 'true') {
+      manualApproveExistingPlugins(submission, submissionFile, args);
+      return;
+    }
     console.log('submission already approved: ' + submission.id);
     return;
   }
@@ -656,7 +734,7 @@ function commandAutoReview(args) {
       : { status: 'passed', findings: [] },
     reviewer: args.by || 'marketplace-bot',
     decision: 'approved',
-    reason: 'auto-approved ' + plugins.length + ' plugin(s): ' + plugins.map((plugin) => plugin.name).join(', '),
+    reason: (args['manual-approve'] === true || args['manual-approve'] === 'true' ? 'admin manually approved ' : 'auto-approved ') + plugins.length + ' plugin(s): ' + plugins.map((plugin) => plugin.name).join(', '),
     reviewedAt: timestamp,
   };
   writeJson(submissionFile, submission);
@@ -713,6 +791,18 @@ async function verifyRemovalRequester(plugin, requester) {
   return { login, permission };
 }
 
+function resolveSubmissionReference(ref) {
+  if (!ref) throw new Error('remove-submission 需要 submission id 或 GitHub 仓库 URL');
+  if (/^https:\/\/github\.com\//.test(ref)) {
+    const repo = parseGithubRepo(ref);
+    const matches = listJson(SUBMISSION_DIR).filter((file) => parseGithubRepo(readJson(file).repositoryUrl).repositoryUrl === repo.repositoryUrl);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error('提交引用不唯一：' + repo.repositoryUrl);
+    throw new Error('找不到提交：' + repo.repositoryUrl);
+  }
+  return resolveSubmission(ref);
+}
+
 function resolvePluginReference(ref) {
   if (!ref) throw new Error('remove 需要插件名称或 GitHub 仓库 URL');
   const plugins = listJson(PLUGIN_DIR).map((file) => ({ file, plugin: readJson(file) }));
@@ -761,7 +851,10 @@ function upsertRemovalRecord(plugin, args, verified) {
 async function commandRemove(args) {
   const ref = args._[0];
   const { file, plugin } = resolvePluginReference(ref);
-  const verified = await verifyRemovalRequester(plugin, args.by);
+  const adminApproved = args['admin-approved'] === true || args['admin-approved'] === 'true';
+  const verified = adminApproved
+    ? { login: args.by || 'marketplace-admin', permission: 'marketplace-admin' }
+    : await verifyRemovalRequester(plugin, args.by);
   const snapshotPath = plugin.source?.type === 'local-snapshot' ? plugin.source?.path : null;
   if (snapshotPath && snapshotPath.startsWith('marketplace/snapshots/')) {
     fs.rmSync(path.join(ROOT, snapshotPath), { recursive: true, force: true });
@@ -769,6 +862,24 @@ async function commandRemove(args) {
   fs.rmSync(file, { force: true });
   upsertRemovalRecord(plugin, args, verified);
   console.log('removed ' + plugin.name + '; requester @' + verified.login + ' permission=' + verified.permission);
+}
+
+function commandRemoveSubmission(args) {
+  const ref = args._[0];
+  let submissionFile = null;
+  let submission = null;
+  try {
+    submissionFile = resolveSubmissionReference(ref);
+    submission = readJson(submissionFile);
+  } catch (error) {
+    if (!/^https:\/\/github\.com\//.test(ref || '')) throw error;
+    const repo = parseGithubRepo(ref);
+    submission = { id: repo.owner + '-' + repo.repo, repositoryUrl: repo.repositoryUrl };
+  }
+  const records = pluginRecordsForRepository(submission.repositoryUrl);
+  removePluginRecordFiles(records);
+  if (submissionFile) fs.rmSync(submissionFile, { force: true });
+  console.log('removed submission ' + submission.id + ' and ' + records.length + ' plugin record(s); requester @' + (args.by || 'marketplace-admin'));
 }
 
 function commandValidate() {
@@ -837,6 +948,7 @@ try {
   else if (command === 'auto-review') commandAutoReview(args);
   else if (command === 'reject') commandReject(args);
   else if (command === 'remove') await commandRemove(args);
+  else if (command === 'remove-submission') commandRemoveSubmission(args);
   else if (command === 'sync') commandSync(args);
   else if (command === 'validate') commandValidate();
   else throw new Error(`未知命令：${command}`);

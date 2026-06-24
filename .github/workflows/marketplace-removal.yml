@@ -35,6 +35,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           ISSUE_ACTOR: ${{ github.event.issue.user.login }}
           COMMENT_ACTOR: ${{ github.event.comment.user.login }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
           const eventName = process.env.EVENT_NAME;
@@ -44,9 +45,12 @@ jobs:
           const urlMatch = text.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
           const commandMatch = text.match(/\/marketplace\s+remove\s+(\S+)/);
           const pluginMatch = text.match(/###\s*删除插件\s*\n([^\n]+)/);
-          const requesterMatch = text.match(/###\s*请求者 GitHub 用户名\s*\n@?([A-Za-z0-9-]{1,39})/);
+          const adminApproved = eventName === 'issues'
+            && actor
+            && actor.toLowerCase() === String(process.env.REPOSITORY_OWNER || '').toLowerCase()
+            && /Marketplace 管理员密码校验已通过/.test(text);
           const target = commandMatch?.[1] || urlMatch?.[0]?.replace(/\.git$/, '') || pluginMatch?.[1]?.trim();
-          const requester = actor;
+          const requester = adminApproved ? 'marketplace-admin' : actor;
           if (!target) {
             console.error('No plugin name or GitHub repository URL found in removal request.');
             process.exit(1);
@@ -57,6 +61,7 @@ jobs:
           }
           console.log('target=' + target);
           console.log('requester=' + requester.replace(/^@/, ''));
+          console.log('admin_approved=' + (adminApproved ? 'true' : 'false'));
           NODE
       - name: Remove plugin and sync marketplace
         env:
@@ -64,8 +69,9 @@ jobs:
           TARGET: ${{ steps.extract.outputs.target }}
           REQUESTER: ${{ steps.extract.outputs.requester }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          ADMIN_APPROVED: ${{ steps.extract.outputs.admin_approved }}
         run: |
-          node scripts/marketplace.mjs remove "$TARGET" --by "$REQUESTER" --issue "$ISSUE_URL" --reason "repository owner requested removal"
+          node scripts/marketplace.mjs remove "$TARGET" --by "$REQUESTER" --issue "$ISSUE_URL" --reason "marketplace admin requested removal" --admin-approved "$ADMIN_APPROVED"
           node scripts/marketplace.mjs sync
           node scripts/marketplace.mjs sync --check
       - name: Commit removed plugin
@@ -93,7 +99,7 @@ jobs:
           CHANGED: ${{ steps.commit.outputs.changed }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "删除请求已通过 owner/maintainer 权限校验，并已同步 Marketplace。目标：$TARGET；请求者：@$REQUESTER；是否产生新提交：${CHANGED:-unknown}。"
+            gh issue comment "$ISSUE_NUMBER" --body "删除请求已通过权限校验，并已同步 Marketplace。目标：$TARGET；请求者：@$REQUESTER；是否产生新提交：${CHANGED:-unknown}。"
           else
-            gh issue comment "$ISSUE_NUMBER" --body "删除请求未通过。只有插件 GitHub 仓库的 owner 或 maintainer 可以删除 Marketplace 中的对应插件，请确认请求者 GitHub 用户名和仓库权限。"
+            gh issue comment "$ISSUE_NUMBER" --body "删除请求未通过。网页管理员删除需要由 Marketplace 服务端创建并通过管理员密码校验；评论命令仍只接受插件 GitHub 仓库 owner/maintainer。"
           fi

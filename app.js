@@ -26,6 +26,11 @@ let state = {
   removalSuccessUrl: "",
   removalSuccessMessage: "",
   removalIssueNumber: "",
+  adminReviewTarget: "",
+  adminReviewLoading: false,
+  adminReviewError: "",
+  adminReviewSuccessUrl: "",
+  adminReviewSuccessMessage: "",
 };
 
 const statusLabel = {
@@ -429,6 +434,12 @@ function perspectivePage() {
 function reviewCard(item) {
   const scan = item.securityScan;
   const issueLabel = item.issueUrl ? `#${item.issueUrl.split("/").pop()}` : "追踪";
+  const needsAdminAction = item.status === "failed" || item.status === "rejected" || scan?.status === "blocked";
+  const adminActive = state.adminReviewTarget === item.id;
+  const adminError = adminActive ? state.adminReviewError : "";
+  const adminSuccessUrl = adminActive ? state.adminReviewSuccessUrl : "";
+  const adminSuccessMessage = adminActive ? state.adminReviewSuccessMessage : "";
+  const passwordId = `admin-password-${String(item.id || item.slug).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return `
     <article class="review-card glass-card">
       <div class="review-card-head">
@@ -449,6 +460,21 @@ function reviewCard(item) {
         ${item.issueUrl ? `<a class="perspective-button secondary" href="${safe(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("external-link", issueLabel)}</a>` : ""}
         ${item.pluginName ? `<a class="perspective-button primary" href="/plugins/${safe(item.pluginName)}" data-link>${icon("arrow-right", "查看插件")}</a>` : ""}
       </div>
+      ${needsAdminAction ? `
+        <form class="admin-review-form" data-admin-review-form novalidate>
+          <input type="hidden" name="submissionId" value="${safe(item.id)}" />
+          <input type="hidden" name="repositoryUrl" value="${safe(item.repositoryUrl)}" />
+          <label for="${safe(passwordId)}">管理员密码</label>
+          <div class="admin-action-row">
+            <input id="${safe(passwordId)}" name="adminPassword" type="password" autocomplete="current-password" placeholder="输入管理员密码" aria-describedby="${safe(passwordId)}-help ${safe(passwordId)}-error" />
+            <button class="perspective-button secondary" type="submit" name="action" value="manual-approve" ${state.adminReviewLoading && adminActive ? "disabled" : ""}>${icon(state.adminReviewLoading && adminActive ? "loader-circle" : "shield-check", "手动通过")}</button>
+            <button class="perspective-button secondary danger" type="submit" name="action" value="remove-submission" ${state.adminReviewLoading && adminActive ? "disabled" : ""}>${icon("trash-2", "删除请求")}</button>
+          </div>
+          <p id="${safe(passwordId)}-help" class="helper">自动扫描未通过时，管理员可提交手动通过或删除上传请求任务。</p>
+          ${adminError ? `<p id="${safe(passwordId)}-error" class="error-text" role="alert">${safe(adminError)}</p>` : `<p id="${safe(passwordId)}-error" class="error-text" role="alert"></p>`}
+          ${adminSuccessUrl ? `<div class="success-box"><strong>${safe(adminSuccessMessage || "管理员任务已提交")}</strong><a class="perspective-button secondary" href="${safe(adminSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", "查看任务")}</a></div>` : ""}
+        </form>
+      ` : ""}
     </article>
   `;
 }
@@ -558,7 +584,6 @@ function detailPage(name) {
   const plugin = registry.plugins.find((item) => item.name === name);
   if (!plugin) return notFoundPage();
   const installCommand = pluginInstallCommand(plugin);
-  const removalRequester = document.querySelector("#removal-requester")?.value || "";
   const removalReason = document.querySelector("#removal-reason")?.value || "";
   const removalActive = state.removalPluginName === plugin.name;
   const removalError = removalActive ? state.removalError : "";
@@ -641,14 +666,14 @@ function detailPage(name) {
 
             <section class="panel glass-card removal-panel">
               <h2>删除请求</h2>
-              <p class="helper">仅插件 GitHub 仓库的 owner 或 maintainer 可以删除收录记录。网页会创建追踪请求，owner 需要在 GitHub issue 中确认。</p>
+              <p class="helper">仅 Marketplace 管理员可以删除收录记录。密码只在服务端校验，不会写入 GitHub issue。</p>
               <form class="removal-form" data-removal-form novalidate>
                 <input type="hidden" name="pluginName" value="${safe(plugin.name)}" />
                 <input type="hidden" name="repositoryUrl" value="${safe(plugin.repositoryUrl)}" />
                 <div class="field">
-                  <label for="removal-requester">GitHub 用户名</label>
-                  <input id="removal-requester" name="requester" value="${safe(removalRequester)}" placeholder="owner-login" autocomplete="username" aria-describedby="removal-help removal-error" />
-                  <p id="removal-help" class="helper">填写仓库 owner 或 maintainer 的 GitHub 登录名，用于维护者识别。</p>
+                  <label for="removal-admin-password">管理员密码</label>
+                  <input id="removal-admin-password" name="adminPassword" type="password" placeholder="输入管理员密码" autocomplete="current-password" aria-describedby="removal-help removal-error" />
+                  <p id="removal-help" class="helper">密码由容器环境变量 MARKETPLACE_ADMIN_PASSWORD 设置，只用于本次服务端校验。</p>
                   <p id="removal-error" class="error-text" role="alert">${safe(removalError)}</p>
                 </div>
                 <div class="field">
@@ -657,7 +682,7 @@ function detailPage(name) {
                 </div>
                 <button class="perspective-button secondary" type="submit" ${state.removalLoading && removalActive ? "disabled" : ""}>${icon(state.removalLoading && removalActive ? "loader-circle" : "trash-2", state.removalLoading && removalActive ? "正在提交..." : "申请删除")}</button>
               </form>
-              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>仓库 owner/maintainer 需要在 GitHub issue 中确认后才会自动删除。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
+              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>GitHub Action 会根据管理员授权自动移除插件并同步 Marketplace。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
             </section>
           </aside>
         </div>
@@ -881,6 +906,7 @@ function attachEvents() {
   });
 
   attachRemovalForm();
+  attachAdminReviewForms();
 
   document.querySelector("[data-submit-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -946,7 +972,7 @@ function attachRemovalForm() {
     const form = new FormData(event.currentTarget);
     const pluginName = String(form.get("pluginName") || "").trim();
     const repositoryUrl = String(form.get("repositoryUrl") || "").trim();
-    const requester = String(form.get("requester") || "").trim().replace(/^@/, "");
+    const adminPassword = String(form.get("adminPassword") || "");
     const reason = String(form.get("reason") || "").trim();
     state.removalPluginName = pluginName;
     state.removalTouched = true;
@@ -954,10 +980,10 @@ function attachRemovalForm() {
     state.removalSuccessUrl = "";
     state.removalSuccessMessage = "";
     state.removalIssueNumber = "";
-    if (!/^[A-Za-z0-9-]{1,39}$/.test(requester)) {
-      state.removalError = "请输入有效的 GitHub 用户名。";
+    if (!adminPassword) {
+      state.removalError = "请输入管理员密码。";
       render();
-      document.querySelector("#removal-requester")?.focus();
+      document.querySelector("#removal-admin-password")?.focus();
       return;
     }
 
@@ -967,7 +993,7 @@ function attachRemovalForm() {
       const response = await fetch("/api/removals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pluginName, repositoryUrl, requester, reason }),
+        body: JSON.stringify({ pluginName, repositoryUrl, adminPassword, reason }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "删除请求提交失败，请稍后重试。");
@@ -983,6 +1009,51 @@ function attachRemovalForm() {
       state.removalLoading = false;
       render();
     }
+  });
+}
+
+function attachAdminReviewForms() {
+  document.querySelectorAll("[data-admin-review-form]").forEach((formElement) => {
+    formElement.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submitter = event.submitter;
+      const form = new FormData(event.currentTarget);
+      const submissionId = String(form.get("submissionId") || "").trim();
+      const repositoryUrl = String(form.get("repositoryUrl") || "").trim();
+      const adminPassword = String(form.get("adminPassword") || "");
+      const action = String(submitter?.value || form.get("action") || "").trim();
+      state.adminReviewTarget = submissionId;
+      state.adminReviewError = "";
+      state.adminReviewSuccessUrl = "";
+      state.adminReviewSuccessMessage = "";
+      if (!adminPassword) {
+        state.adminReviewError = "请输入管理员密码。";
+        render();
+        document.querySelector(`#admin-password-${String(submissionId).replace(/[^a-zA-Z0-9_-]/g, "-")}`)?.focus();
+        return;
+      }
+      state.adminReviewLoading = true;
+      render();
+      try {
+        const response = await fetch("/api/admin/submissions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ submissionId, repositoryUrl, adminPassword, action }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "管理员操作提交失败，请稍后重试。");
+        state.adminReviewSuccessUrl = result.issueUrl || "";
+        state.adminReviewSuccessMessage = result.message || "管理员任务已提交。";
+        loadReviewItems();
+        showToast(action === "manual-approve" ? "已提交手动通过任务" : "已提交删除请求任务");
+      } catch (error) {
+        state.adminReviewError = error.message || "管理员操作提交失败，请稍后重试。";
+        showToast("管理员操作失败");
+      } finally {
+        state.adminReviewLoading = false;
+        render();
+      }
+    });
   });
 }
 
