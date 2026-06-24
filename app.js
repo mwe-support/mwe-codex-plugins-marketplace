@@ -19,6 +19,13 @@ let state = {
   reviews: [],
   reviewsLoading: false,
   reviewsError: "",
+  removalPluginName: "",
+  removalTouched: false,
+  removalLoading: false,
+  removalError: "",
+  removalSuccessUrl: "",
+  removalSuccessMessage: "",
+  removalIssueNumber: "",
 };
 
 const statusLabel = {
@@ -179,6 +186,7 @@ const reviewStatusLabel = {
   rejected: "已拒绝",
   failed: "需处理",
   closed: "已关闭",
+  removed: "已删除",
 };
 
 function reviewItems() {
@@ -549,6 +557,11 @@ function detailPage(name) {
   const plugin = registry.plugins.find((item) => item.name === name);
   if (!plugin) return notFoundPage();
   const installCommand = pluginInstallCommand(plugin);
+  const removalRequester = document.querySelector("#removal-requester")?.value || "";
+  const removalReason = document.querySelector("#removal-reason")?.value || "";
+  const removalActive = state.removalPluginName === plugin.name;
+  const removalError = removalActive ? state.removalError : "";
+  const removalSuccessUrl = removalActive ? state.removalSuccessUrl : "";
   return `
     <div class="perspective-app">
       ${header()}
@@ -623,6 +636,27 @@ function detailPage(name) {
               <a class="perspective-button secondary" href="/submit" data-link>${icon("git-pull-request", "贡献更新")}</a>
             </div>
           </section>
+
+            <section class="panel glass-card removal-panel">
+              <h2>删除请求</h2>
+              <p class="helper">仅插件 GitHub 仓库的 owner 或 maintainer 可以删除收录记录。提交后会自动校验权限。</p>
+              <form class="removal-form" data-removal-form novalidate>
+                <input type="hidden" name="pluginName" value="${safe(plugin.name)}" />
+                <input type="hidden" name="repositoryUrl" value="${safe(plugin.repositoryUrl)}" />
+                <div class="field">
+                  <label for="removal-requester">GitHub 用户名</label>
+                  <input id="removal-requester" name="requester" value="${safe(removalRequester)}" placeholder="owner-login" autocomplete="username" aria-describedby="removal-help removal-error" />
+                  <p id="removal-help" class="helper">填写仓库 owner 或 maintainer 的 GitHub 登录名。</p>
+                  <p id="removal-error" class="error-text" role="alert">${safe(removalError)}</p>
+                </div>
+                <div class="field">
+                  <label for="removal-reason">删除原因</label>
+                  <textarea id="removal-reason" name="reason" placeholder="例如：仓库已停止维护，希望从 Marketplace 下架。">${safe(removalReason)}</textarea>
+                </div>
+                <button class="perspective-button secondary" type="submit" ${state.removalLoading && removalActive ? "disabled" : ""}>${icon(state.removalLoading && removalActive ? "loader-circle" : "trash-2", state.removalLoading && removalActive ? "正在提交..." : "申请删除")}</button>
+              </form>
+              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>自动流程会校验仓库 owner/maintainer 权限。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
+            </section>
           </aside>
         </div>
       </main>
@@ -666,8 +700,8 @@ function submitPage() {
               : ""
           }
           ${
-            state.submitSuccessUrl
-              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。</p><a class="perspective-button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a></div>`
+            state.submitSuccessMessage
+              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>${state.submitSuccessUrl ? "自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。" : "系统没有创建新的审核 issue，你可以继续浏览或提交其他插件。"}</p>${state.submitSuccessUrl ? `<a class="perspective-button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a>` : ""}</div>`
               : ""
           }
         </section>
@@ -845,6 +879,8 @@ function attachEvents() {
     render();
   });
 
+  attachRemovalForm();
+
   document.querySelector("[data-submit-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -877,7 +913,7 @@ function attachEvents() {
       state.submitSuccessMessage = result.message || "已提交，自动审核已进入队列。";
       state.submitIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
       loadReviewItems();
-      showToast(result.duplicate ? "已有审核任务" : "已提交审核");
+      showToast(result.duplicate ? result.duplicateType === "listed" ? "插件已收录" : "已有审核任务" : "已提交审核");
     } catch (error) {
       state.submitError = error.message || "提交失败，请稍后重试。";
       showToast("提交失败");
@@ -900,7 +936,55 @@ function initShanghaiClock() {
 
   update();
   attachEvents.shanghaiClockTimer = window.setInterval?.(update, 1000) || 0;
+
+
 }
+function attachRemovalForm() {
+  document.querySelector("[data-removal-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const pluginName = String(form.get("pluginName") || "").trim();
+    const repositoryUrl = String(form.get("repositoryUrl") || "").trim();
+    const requester = String(form.get("requester") || "").trim().replace(/^@/, "");
+    const reason = String(form.get("reason") || "").trim();
+    state.removalPluginName = pluginName;
+    state.removalTouched = true;
+    state.removalError = "";
+    state.removalSuccessUrl = "";
+    state.removalSuccessMessage = "";
+    state.removalIssueNumber = "";
+    if (!/^[A-Za-z0-9-]{1,39}$/.test(requester)) {
+      state.removalError = "请输入有效的 GitHub 用户名。";
+      render();
+      document.querySelector("#removal-requester")?.focus();
+      return;
+    }
+
+    state.removalLoading = true;
+    render();
+    try {
+      const response = await fetch("/api/removals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluginName, repositoryUrl, requester, reason }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "删除请求提交失败，请稍后重试。");
+      state.removalSuccessUrl = result.issueUrl || "";
+      state.removalSuccessMessage = result.message || "已提交删除请求。";
+      state.removalIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
+      loadReviewItems();
+      showToast(result.duplicate ? "已有删除请求" : "已提交删除请求");
+    } catch (error) {
+      state.removalError = error.message || "删除请求提交失败，请稍后重试。";
+      showToast("删除请求失败");
+    } finally {
+      state.removalLoading = false;
+      render();
+    }
+  });
+}
+
 function validateGithubUrl(value) {
   if (!value.trim()) return "请输入 GitHub 仓库 URL。";
   try {

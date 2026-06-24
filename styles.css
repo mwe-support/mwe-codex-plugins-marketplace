@@ -3619,7 +3619,7 @@ body {
 
 /* Unified Perspective standard content pages. */
 .standard-page {
-  width: min(1152px, calc(100% - 48px));
+  width: min(1480px, calc(100% - 48px));
   margin: 0 auto;
   padding: 72px 0 96px;
   overflow: visible;
@@ -3627,13 +3627,13 @@ body {
 
 .standard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
   gap: 24px;
   align-items: start;
 }
 
 .standard-single {
-  width: min(880px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
 }
 
@@ -3857,4 +3857,79 @@ body {
   .standard-page .form-actions .perspective-button {
     width: 100%;
   }
+}
+
+
+/* Plugin removal request form. */
+.plugin-detail-page .removal-form,
+.plugin-detail-page .removal-form .field {
+  display: grid;
+  gap: 10px;
+}
+
+.plugin-detail-page .removal-form {
+  margin-top: 14px;
+}
+
+.plugin-detail-page .removal-form label {
+  color: var(--ps-heading);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.plugin-detail-page .removal-form input,
+.plugin-detail-page .removal-form textarea {
+  width: 100%;
+  border: 1px solid var(--ps-border);
+  border-radius: 14px;
+  background: var(--ps-neutral-medium);
+  color: var(--ps-heading);
+  box-shadow: var(--ps-shadow-xs);
+}
+
+.plugin-detail-page .removal-form input {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.plugin-detail-page .removal-form textarea {
+  min-height: 104px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.plugin-detail-page .removal-form input::placeholder,
+.plugin-detail-page .removal-form textarea::placeholder {
+  color: var(--ps-body);
+}
+
+.plugin-detail-page .removal-form input:focus,
+.plugin-detail-page .removal-form textarea:focus {
+  border-color: var(--ps-brand);
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ps-brand) 42%, transparent);
+}
+
+.plugin-detail-page .removal-form .error-text {
+  min-height: 18px;
+  margin: 0;
+  color: #fecdd3;
+  font-size: 12px;
+}
+
+.plugin-detail-page .removal-panel .success-box {
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  border-radius: 16px;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+:root[data-theme="light"] .plugin-detail-page .removal-form input,
+:root[data-theme="light"] .plugin-detail-page .removal-form textarea {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--ps-border);
+  color: var(--ps-heading);
+}
+
+:root[data-theme="light"] .plugin-detail-page .removal-form .error-text {
+  color: #be123c;
 }

@@ -1,0 +1,102 @@
+name: Marketplace Removal
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: marketplace-removal-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  removal:
+    if: >-
+      (github.event_name == 'issues' && contains(toJson(github.event.issue.labels), 'plugin-removal')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/marketplace remove '))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract removal request
+        id: extract
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_ACTOR: ${{ github.event.issue.user.login }}
+          COMMENT_ACTOR: ${{ github.event.comment.user.login }}
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const eventName = process.env.EVENT_NAME;
+          const body = eventName === 'issue_comment' ? process.env.COMMENT_BODY : process.env.ISSUE_BODY;
+          const actor = eventName === 'issue_comment' ? process.env.COMMENT_ACTOR : process.env.ISSUE_ACTOR;
+          const text = String(body || '');
+          const urlMatch = text.match(/https://github.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/);
+          const commandMatch = text.match(//marketplaces+removes+(S+)/);
+          const pluginMatch = text.match(/###s*删除插件s*
+([^
+]+)/);
+          const requesterMatch = text.match(/###s*请求者 GitHub 用户名s*
+@?([A-Za-z0-9-]{1,39})/);
+          const target = commandMatch?.[1] || urlMatch?.[0]?.replace(/\.git$/, '') || pluginMatch?.[1]?.trim();
+          const requester = requesterMatch?.[1] || actor;
+          if (!target) {
+            console.error('No plugin name or GitHub repository URL found in removal request.');
+            process.exit(1);
+          }
+          if (!requester) {
+            console.error('No requester GitHub login found in removal request.');
+            process.exit(1);
+          }
+          console.log('target=' + target);
+          console.log('requester=' + requester.replace(/^@/, ''));
+          NODE
+      - name: Remove plugin and sync marketplace
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          REQUESTER: ${{ steps.extract.outputs.requester }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          node scripts/marketplace.mjs remove "$TARGET" --by "$REQUESTER" --issue "$ISSUE_URL" --reason "repository owner requested removal"
+          node scripts/marketplace.mjs sync
+          node scripts/marketplace.mjs sync --check
+      - name: Commit removed plugin
+        id: commit
+        run: |
+          if git diff --quiet -- marketplace/submissions marketplace/plugins marketplace/snapshots registry/plugins.json marketplace.json .agents/plugins/marketplace.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add marketplace/submissions marketplace/plugins marketplace/snapshots registry/plugins.json marketplace.json .agents/plugins/marketplace.json
+          git commit -m "Remove marketplace plugin"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Comment result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          JOB_STATUS: ${{ job.status }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          REQUESTER: ${{ steps.extract.outputs.requester }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "删除请求已通过 owner/maintainer 权限校验，并已同步 Marketplace。目标：$TARGET；请求者：@$REQUESTER；是否产生新提交：${CHANGED:-unknown}。"
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "删除请求未通过。只有插件 GitHub 仓库的 owner 或 maintainer 可以删除 Marketplace 中的对应插件，请确认请求者 GitHub 用户名和仓库权限。"
+          fi

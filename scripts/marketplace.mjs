@@ -19,6 +19,7 @@ const MARKETPLACE_NAME = 'codex-community';
 
 const allowedStatuses = new Set(['verified', 'reviewing', 'unverified']);
 const allowedSyncStatuses = new Set(['synced', 'pending', 'failed']);
+const allowedSubmissionStatuses = new Set(['reviewing', 'approved', 'rejected', 'removed']);
 
 function usage() {
   console.log(`Marketplace registry helper
@@ -28,6 +29,7 @@ Commands:
   approve <submission-id-or-file> [metadata flags]
   auto-review <submission-id-or-file|github-url> [--by name] [--ref ref]
   reject <submission-id-or-file> --reason text
+  remove <plugin-name-or-github-url> --by github-login [--reason text] [--issue url]
   sync [--check]
   validate
 
@@ -329,6 +331,20 @@ function titleFromRepo(repo) {
     .join(' ');
 }
 
+function containsChinese(value) {
+  return /[\u3400-\u9fff]/.test(String(value || ''));
+}
+
+function validateChineseMarketplaceText(plugin) {
+  const errors = [];
+  for (const field of ['description', 'longDescription']) {
+    if (!containsChinese(plugin[field])) {
+      errors.push((plugin.name || '(unknown)') + ' ' + field + ' 必须使用中文描述');
+    }
+  }
+  return errors;
+}
+
 function normalizePlugin(plugin) {
   const errors = [];
   for (const field of ['name', 'displayName', 'description', 'author', 'category', 'version', 'releaseTag', 'repositoryUrl']) {
@@ -337,6 +353,7 @@ function normalizePlugin(plugin) {
   if (plugin.verifiedStatus && !allowedStatuses.has(plugin.verifiedStatus)) errors.push(`${plugin.name} verifiedStatus 无效`);
   if (plugin.syncStatus && !allowedSyncStatuses.has(plugin.syncStatus)) errors.push(`${plugin.name} syncStatus 无效`);
   parseGithubRepo(plugin.repositoryUrl);
+  errors.push(...validateChineseMarketplaceText(plugin));
   if (plugin.source?.path && path.isAbsolute(plugin.source.path)) errors.push(`${plugin.name} source.path 不能是绝对路径`);
   if (plugin.source?.type === 'local-snapshot' && plugin.source.path && !fs.existsSync(path.join(ROOT, plugin.source.path))) errors.push(`${plugin.name} source.path 快照不存在`);
   return errors;
@@ -645,6 +662,97 @@ function commandReject(args) {
   writeJson(submissionFile, submission);
   console.log(`rejected ${submission.id}`);
 }
+function githubApi(pathname, token) {
+  if (!token) throw new Error('删除校验需要 GITHUB_TOKEN，用于查询仓库权限');
+  const response = fetch('https://api.github.com' + pathname, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: 'Bearer ' + token,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  return response.then(async (result) => {
+    const text = await result.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!result.ok) throw new Error(data?.message || result.statusText);
+    return data;
+  });
+}
+
+async function verifyRemovalRequester(plugin, requester) {
+  const login = String(requester || '').replace(/^@/, '').trim();
+  if (!login) throw new Error('删除请求必须提供 GitHub 登录名');
+  const repo = parseGithubRepo(plugin.repositoryUrl);
+  if (login.toLowerCase() === repo.owner.toLowerCase()) return { login, permission: 'owner' };
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+  const permission = await githubApi('/repos/' + repo.owner + '/' + repo.repo + '/collaborators/' + encodeURIComponent(login) + '/permission', token)
+    .then((data) => data.permission)
+    .catch((error) => {
+      throw new Error('无法确认 @' + login + ' 对 ' + repo.owner + '/' + repo.repo + ' 的权限：' + error.message);
+    });
+  if (!['admin', 'maintain'].includes(permission)) {
+    throw new Error('@' + login + ' 不是 ' + repo.owner + '/' + repo.repo + ' 的 owner/maintainer，当前权限为 ' + (permission || 'none'));
+  }
+  return { login, permission };
+}
+
+function resolvePluginReference(ref) {
+  if (!ref) throw new Error('remove 需要插件名称或 GitHub 仓库 URL');
+  const plugins = listJson(PLUGIN_DIR).map((file) => ({ file, plugin: readJson(file) }));
+  if (/^https:\/\/github\.com\//.test(ref)) {
+    const repo = parseGithubRepo(ref);
+    const match = plugins.find((item) => parseGithubRepo(item.plugin.repositoryUrl).repositoryUrl === repo.repositoryUrl);
+    if (!match) throw new Error('找不到这个 GitHub 仓库对应的已收录插件：' + repo.repositoryUrl);
+    return match;
+  }
+  const match = plugins.find((item) => item.plugin.name === ref);
+  if (!match) throw new Error('找不到已收录插件：' + ref);
+  return match;
+}
+
+function upsertRemovalRecord(plugin, args, verified) {
+  const repo = parseGithubRepo(plugin.repositoryUrl);
+  const id = 'remove-' + plugin.name + '-' + stableId(plugin.repositoryUrl);
+  const file = path.join(SUBMISSION_DIR, id + '.json');
+  const timestamp = now();
+  const existing = fs.existsSync(file) ? readJson(file) : {};
+  writeJson(file, {
+    schemaVersion: 1,
+    type: 'removal',
+    id,
+    slug: plugin.name,
+    owner: repo.owner,
+    repo: repo.repo,
+    repositoryUrl: plugin.repositoryUrl,
+    note: args.reason || '仓库 owner 请求从 Marketplace 删除插件。',
+    submitter: verified.login,
+    status: 'removed',
+    submittedAt: existing.submittedAt || timestamp,
+    updatedAt: timestamp,
+    review: {
+      ...(existing.review || {}),
+      issueUrl: args.issue || existing.review?.issueUrl || null,
+      reviewer: args.by || verified.login,
+      decision: 'removed',
+      reason: args.reason || null,
+      permission: verified.permission,
+      reviewedAt: timestamp,
+    },
+  });
+}
+
+async function commandRemove(args) {
+  const ref = args._[0];
+  const { file, plugin } = resolvePluginReference(ref);
+  const verified = await verifyRemovalRequester(plugin, args.by);
+  const snapshotPath = plugin.source?.type === 'local-snapshot' ? plugin.source?.path : null;
+  if (snapshotPath && snapshotPath.startsWith('marketplace/snapshots/')) {
+    fs.rmSync(path.join(ROOT, snapshotPath), { recursive: true, force: true });
+  }
+  fs.rmSync(file, { force: true });
+  upsertRemovalRecord(plugin, args, verified);
+  console.log('removed ' + plugin.name + '; requester @' + verified.login + ' permission=' + verified.permission);
+}
 
 function commandValidate() {
   const errors = [];
@@ -661,7 +769,7 @@ function commandValidate() {
       const submission = readJson(file);
       if (!submission.id || !submission.repositoryUrl || !submission.status) errors.push(`${path.relative(ROOT, file)}: submission 缺少必填字段`);
       parseGithubRepo(submission.repositoryUrl);
-      if (!['reviewing', 'approved', 'rejected'].includes(submission.status)) errors.push(`${path.relative(ROOT, file)}: submission status 无效`);
+      if (!allowedSubmissionStatuses.has(submission.status)) errors.push(`${path.relative(ROOT, file)}: submission status 无效`);
     } catch (error) {
       errors.push(`${path.relative(ROOT, file)}: ${error.message}`);
     }
@@ -711,6 +819,7 @@ try {
   else if (command === 'approve') commandApprove(args);
   else if (command === 'auto-review') commandAutoReview(args);
   else if (command === 'reject') commandReject(args);
+  else if (command === 'remove') await commandRemove(args);
   else if (command === 'sync') commandSync(args);
   else if (command === 'validate') commandValidate();
   else throw new Error(`未知命令：${command}`);

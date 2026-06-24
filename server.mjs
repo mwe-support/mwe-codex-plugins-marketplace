@@ -35,6 +35,13 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function responseStatusForError(error) {
+  if (error instanceof SyntaxError) return 400;
+  if (error.status && error.status < 500) return error.status;
+  if (/请输入|没有找到|只接受|需要|不合法|格式不正确/.test(error.message || '')) return 400;
+  return 500;
+}
+
 function clientIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
@@ -153,6 +160,34 @@ async function readLocalJson(relativePath, fallback) {
     return fallback;
   }
 }
+function normalizeRepositoryUrl(value) {
+  try {
+    return parseGithubRepositoryUrl(value).normalizedUrl;
+  } catch {
+    return String(value || '').trim().replace(/\.git$/, '');
+  }
+}
+
+async function findRegistryPluginByRepository(repositoryUrl) {
+  const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
+  const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
+  return (registry.plugins || []).find((plugin) => normalizeRepositoryUrl(plugin.repositoryUrl) === normalizedUrl) || null;
+}
+
+async function findRegistrySubmissionByRepository(repositoryUrl) {
+  const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
+  const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
+  return (registry.submissions || []).find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && ['reviewing', 'approved'].includes(item.status)) || null;
+}
+
+function issueHasLabel(issue, labelName) {
+  return (issue.labels || []).some((label) => label.name === labelName);
+}
+
+async function findExistingRemovalIssue(normalizedUrl) {
+  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
+  return Array.isArray(issues) ? issues.find((issue) => !issue.pull_request && issueHasLabel(issue, 'plugin-removal') && issueMatchesSubmission(issue, normalizedUrl)) : null;
+}
 
 function extractRepositoryUrlFromIssue(issue) {
   const text = `${issue.title || ''}\n${issue.body || ''}`;
@@ -229,10 +264,32 @@ async function createSubmissionIssue({ repositoryUrl, note }) {
   }
 
   const { normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
+  const listedPlugin = await findRegistryPluginByRepository(normalizedUrl);
+  if (listedPlugin?.installPolicy !== 'REVIEW_ONLY') {
+    return {
+      duplicate: true,
+      duplicateType: 'listed',
+      pluginName: listedPlugin.name,
+      issueNumber: '',
+      issueUrl: '',
+      repositoryUrl: normalizedUrl,
+    };
+  }
+  const pendingSubmission = await findRegistrySubmissionByRepository(normalizedUrl);
+  if (pendingSubmission) {
+    return {
+      duplicate: true,
+      duplicateType: 'submission',
+      issueNumber: pendingSubmission.issueUrl?.split('/').pop() || '',
+      issueUrl: pendingSubmission.issueUrl || '',
+      repositoryUrl: normalizedUrl,
+    };
+  }
   const existing = await findExistingIssue(normalizedUrl);
   if (existing) {
     return {
       duplicate: true,
+      duplicateType: 'issue',
       issueNumber: existing.number,
       issueUrl: existing.html_url,
       repositoryUrl: normalizedUrl,
@@ -278,6 +335,108 @@ async function createSubmissionIssue({ repositoryUrl, note }) {
   };
 }
 
+function cleanGithubLogin(value) {
+  const login = String(value || '').trim().replace(/^@/, '');
+  if (!/^[A-Za-z0-9-]{1,39}$/.test(login)) throw new Error('请输入有效的 GitHub 登录名。');
+  return login;
+}
+
+async function findPluginForRemoval({ pluginName, repositoryUrl }) {
+  const registry = await readLocalJson('registry/plugins.json', { plugins: [] });
+  const plugins = registry.plugins || [];
+  if (repositoryUrl) {
+    const normalizedUrl = parseGithubRepositoryUrl(repositoryUrl).normalizedUrl;
+    const plugin = plugins.find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && item.installPolicy !== 'REVIEW_ONLY');
+    if (plugin) return plugin;
+    throw new Error('没有找到这个 GitHub 仓库对应的已收录插件。');
+  }
+  const plugin = plugins.find((item) => item.name === pluginName && item.installPolicy !== 'REVIEW_ONLY');
+  if (!plugin) throw new Error('没有找到这个已收录插件。');
+  return plugin;
+}
+
+async function createRemovalIssue({ pluginName, repositoryUrl, requester, reason }) {
+  if (!API_TOKEN) {
+    throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建删除请求。');
+  }
+  const plugin = await findPluginForRemoval({ pluginName, repositoryUrl });
+  const { normalizedUrl, owner, repo } = parseGithubRepositoryUrl(plugin.repositoryUrl);
+  const requesterLogin = cleanGithubLogin(requester);
+  const existing = await findExistingRemovalIssue(normalizedUrl);
+  if (existing) {
+    return {
+      duplicate: true,
+      issueNumber: existing.number,
+      issueUrl: existing.html_url,
+      repositoryUrl: normalizedUrl,
+      pluginName: plugin.name,
+    };
+  }
+
+  const labels = ['plugin-removal', 'removal-needed'];
+  try {
+    await ensureLabel('plugin-removal', 'be123c', 'Codex marketplace plugin removal request');
+    await ensureLabel('removal-needed', 'f97316', 'Needs repository owner or maintainer verification');
+  } catch (error) {
+    console.warn(`Label setup skipped: ${error.message}`);
+  }
+
+  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 请求者 GitHub 用户名\n@${requesterLogin}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 权限校验\n自动流程会验证 @${requesterLogin} 是否为 ${owner}/${repo} 的 owner 或 maintainer。校验失败时不会从 Marketplace 删除插件。`;
+  let issue;
+  try {
+    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
+      method: 'POST',
+      body: {
+        title: `删除插件：${plugin.name} (${normalizedUrl})`,
+        body,
+        labels,
+      },
+    });
+  } catch (error) {
+    if (error.status !== 422) throw error;
+    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
+      method: 'POST',
+      body: { title: `删除插件：${plugin.name} (${normalizedUrl})`, body },
+    });
+  }
+
+  return {
+    duplicate: false,
+    issueNumber: issue.number,
+    issueUrl: issue.html_url,
+    repositoryUrl: normalizedUrl,
+    pluginName: plugin.name,
+  };
+}
+
+async function handleRemoval(request, response) {
+  if (request.method !== 'POST') {
+    response.writeHead(405, { Allow: 'POST' });
+    response.end();
+    return;
+  }
+  if (!checkRateLimit(request)) {
+    sendJson(response, 429, { error: '请求太频繁了，请稍后再试。' });
+    return;
+  }
+  try {
+    const rawBody = await readRequestBody(request);
+    const payload = rawBody ? JSON.parse(rawBody) : {};
+    const result = await createRemovalIssue({
+      pluginName: payload.pluginName,
+      repositoryUrl: payload.repositoryUrl,
+      requester: payload.requester,
+      reason: payload.reason,
+    });
+    sendJson(response, result.duplicate ? 200 : 201, {
+      ...result,
+      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '已提交删除请求，自动流程会校验仓库 owner/maintainer 权限。',
+    });
+  } catch (error) {
+    const status = responseStatusForError(error);
+    sendJson(response, status, { error: error.message || '删除请求提交失败，请稍后重试。' });
+  }
+}
 async function handleSubmission(request, response) {
   if (request.method === 'GET') {
     try {
@@ -307,10 +466,14 @@ async function handleSubmission(request, response) {
     });
     sendJson(response, result.duplicate ? 200 : 201, {
       ...result,
-      message: result.duplicate ? '这个仓库已经在审核队列中。' : '已提交，自动审核已进入队列。',
+      message: result.duplicate
+        ? result.duplicateType === 'listed'
+          ? '这个仓库已经收录在插件市场中。'
+          : '这个仓库已经在审核队列中。'
+        : '已提交，自动审核已进入队列。',
     });
   } catch (error) {
-    const status = error instanceof SyntaxError ? 400 : error.status && error.status < 500 ? error.status : 500;
+    const status = responseStatusForError(error);
     sendJson(response, status, { error: error.message || '提交失败，请稍后重试。' });
   }
 }
@@ -393,6 +556,10 @@ const server = http.createServer((request, response) => {
   }
   if (request.url?.startsWith('/api/submissions')) {
     handleSubmission(request, response);
+    return;
+  }
+  if (request.url?.startsWith('/api/removals')) {
+    handleRemoval(request, response);
     return;
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {

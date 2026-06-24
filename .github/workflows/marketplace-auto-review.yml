@@ -17,7 +17,7 @@ concurrency:
 jobs:
   auto-review:
     if: >-
-      (github.event_name == 'issues' && (contains(github.event.issue.title, 'https://github.com/') || contains(github.event.issue.body, 'https://github.com/'))) ||
+      (github.event_name == 'issues' && contains(toJson(github.event.issue.labels), 'plugin-submission')) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/marketplace submit '))
     runs-on: ubuntu-latest
     steps:

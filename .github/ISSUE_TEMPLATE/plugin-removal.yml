@@ -1,0 +1,35 @@
+name: 删除 Codex 插件
+about: 仓库 owner 或 maintainer 请求从 MWE Codex 插件共享市场删除插件
+labels: [plugin-removal, removal-needed]
+body:
+  - type: input
+    id: plugin_name
+    attributes:
+      label: 删除插件
+      description: 填写插件名称，例如 context7；如果不确定，可以只填写下面的仓库 URL。
+      placeholder: context7
+    validations:
+      required: false
+  - type: input
+    id: repository_url
+    attributes:
+      label: 插件仓库
+      description: 需要是已收录插件对应的 GitHub 仓库。
+      placeholder: https://github.com/owner/plugin-repo
+    validations:
+      required: true
+  - type: input
+    id: requester
+    attributes:
+      label: 请求者 GitHub 用户名
+      description: 必须是插件仓库 owner 或 maintainer。
+      placeholder: owner-login
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: 删除原因
+      description: 请说明为什么希望从 Marketplace 删除这个插件。
+    validations:
+      required: false
