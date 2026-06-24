@@ -31,6 +31,8 @@ let state = {
   adminReviewError: "",
   adminReviewSuccessUrl: "",
   adminReviewSuccessMessage: "",
+  optimisticRemovedRepositories: [],
+  optimisticRemovedPluginNames: [],
 };
 
 const statusLabel = {
@@ -129,10 +131,52 @@ function syncThemeControls() {
   });
 }
 
+function normalizeClientRepositoryUrl(value) {
+  return String(value || "").trim().replace(/\.git$/, "");
+}
+
+function isOptimisticallyRemovedRepository(repositoryUrl) {
+  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
+  return normalized && state.optimisticRemovedRepositories.includes(normalized);
+}
+
+function withoutOptimisticallyRemoved(items) {
+  return (items || []).filter((item) => !isOptimisticallyRemovedRepository(item.repositoryUrl));
+}
+
+function withoutOptimisticallyRemovedPlugins(plugins) {
+  return (plugins || []).filter((plugin) => !state.optimisticRemovedPluginNames.includes(plugin.name) && !isOptimisticallyRemovedRepository(plugin.repositoryUrl));
+}
+
+function removeRepositoryFromLocal(repositoryUrl) {
+  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
+  if (!normalized) return;
+  if (!state.optimisticRemovedRepositories.includes(normalized)) {
+    state.optimisticRemovedRepositories.push(normalized);
+  }
+  registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
+  registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
+  state.reviews = withoutOptimisticallyRemoved(state.reviews);
+}
+
+function removePluginFromLocal(repositoryUrl, pluginName = "") {
+  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
+  if (pluginName && !state.optimisticRemovedPluginNames.includes(pluginName)) {
+    state.optimisticRemovedPluginNames.push(pluginName);
+  }
+  registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
+  const stillHasPluginFromRepository = normalized && (registry.plugins || []).some((plugin) => normalizeClientRepositoryUrl(plugin.repositoryUrl) === normalized);
+  if (!stillHasPluginFromRepository) {
+    removeRepositoryFromLocal(repositoryUrl);
+  }
+}
+
 async function loadRegistry() {
   try {
     const response = await fetch("/registry/plugins.json", { cache: "no-store" });
     registry = await response.json();
+    registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
+    registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
   } catch {
     showToast("Registry 加载失败，正在显示空状态");
     registry = { marketplace: {}, plugins: [], submissions: [] };
@@ -149,10 +193,10 @@ async function loadReviewItems() {
   try {
     const response = await fetch("/api/submissions", { cache: "no-store" });
     const payload = await response.json();
-    state.reviews = payload.submissions || registry.submissions || [];
+    state.reviews = withoutOptimisticallyRemoved(payload.submissions || registry.submissions || []);
     state.reviewsError = payload.warning || "";
   } catch (error) {
-    state.reviews = registry.submissions || [];
+    state.reviews = withoutOptimisticallyRemoved(registry.submissions || []);
     state.reviewsError = error.message || "审核进度加载失败";
   } finally {
     state.reviewsLoading = false;
@@ -1000,8 +1044,12 @@ function attachRemovalForm() {
       state.removalSuccessUrl = result.issueUrl || "";
       state.removalSuccessMessage = result.message || "已提交删除请求。";
       state.removalIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
-      loadReviewItems();
-      showToast(result.duplicate ? "已有删除请求" : "已提交删除请求");
+      removePluginFromLocal(result.repositoryUrl || repositoryUrl, result.pluginName || pluginName);
+      showToast(result.duplicate ? "已有删除请求，已从当前视图隐藏" : "已提交删除请求，当前视图已移除");
+      if (state.route.startsWith("/plugins/")) {
+        navigate("/");
+      }
+      window.setTimeout?.(loadReviewItems, 8000);
     } catch (error) {
       state.removalError = error.message || "删除请求提交失败，请稍后重试。";
       showToast("删除请求失败");
@@ -1044,8 +1092,14 @@ function attachAdminReviewForms() {
         if (!response.ok) throw new Error(result.error || "管理员操作提交失败，请稍后重试。");
         state.adminReviewSuccessUrl = result.issueUrl || "";
         state.adminReviewSuccessMessage = result.message || "管理员任务已提交。";
-        loadReviewItems();
-        showToast(action === "manual-approve" ? "已提交手动通过任务" : "已提交删除请求任务");
+        if (action === "remove-submission") {
+          removeRepositoryFromLocal(result.repositoryUrl || repositoryUrl);
+          showToast("已提交删除请求，当前视图已移除");
+          window.setTimeout?.(loadReviewItems, 8000);
+        } else {
+          loadReviewItems();
+          showToast("已提交手动通过任务");
+        }
       } catch (error) {
         state.adminReviewError = error.message || "管理员操作提交失败，请稍后重试。";
         showToast("管理员操作失败");

@@ -262,8 +262,11 @@ async function listSubmissionProgress() {
       const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
       const local = repositoryUrl ? localByRepo.get(repositoryUrl) : null;
       const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
-      const status = local?.status === 'approved' ? 'approved' : issueStatus;
-      if (status === 'removed') continue;
+      const status = issueStatus === 'removed' ? 'removed' : local?.status === 'approved' ? 'approved' : issueStatus;
+      if (status === 'removed') {
+        items.delete(repositoryUrl || issue.html_url);
+        continue;
+      }
       const latestActionComment = [...(comments || [])].reverse().find((comment) => comment.user?.login === 'github-actions');
       const repoParts = repositoryUrl ? repositoryUrl.split('/').slice(-2) : [];
       items.set(repositoryUrl || issue.html_url, {

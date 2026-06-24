@@ -49,7 +49,7 @@ jobs:
             && actor
             && actor.toLowerCase() === String(process.env.REPOSITORY_OWNER || '').toLowerCase()
             && /Marketplace 管理员密码校验已通过/.test(text);
-          const target = commandMatch?.[1] || urlMatch?.[0]?.replace(/\.git$/, '') || pluginMatch?.[1]?.trim();
+          const target = commandMatch?.[1] || pluginMatch?.[1]?.trim() || urlMatch?.[0]?.replace(/\.git$/, '');
           const requester = adminApproved ? 'marketplace-admin' : actor;
           if (!target) {
             console.error('No plugin name or GitHub repository URL found in removal request.');

@@ -536,6 +536,21 @@ function pluginRecordsForRepository(repositoryUrl) {
     .filter((item) => parseGithubRepo(item.plugin.repositoryUrl).repositoryUrl === repo.repositoryUrl);
 }
 
+function submissionFilesForRepository(repositoryUrl) {
+  const repo = parseGithubRepo(repositoryUrl);
+  return listJson(SUBMISSION_DIR).filter((file) => {
+    const submission = readJson(file);
+    if (submission.type === 'removal') return false;
+    return parseGithubRepo(submission.repositoryUrl).repositoryUrl === repo.repositoryUrl;
+  });
+}
+
+function removeSubmissionFilesForRepository(repositoryUrl) {
+  for (const file of submissionFilesForRepository(repositoryUrl)) {
+    fs.rmSync(file, { force: true });
+  }
+}
+
 function removePluginRecordFiles(records) {
   for (const { file, plugin } of records) {
     const snapshotPath = plugin.source?.type === 'local-snapshot' ? plugin.source?.path : null;
@@ -860,6 +875,7 @@ async function commandRemove(args) {
     fs.rmSync(path.join(ROOT, snapshotPath), { recursive: true, force: true });
   }
   fs.rmSync(file, { force: true });
+  removeSubmissionFilesForRepository(plugin.repositoryUrl);
   upsertRemovalRecord(plugin, args, verified);
   console.log('removed ' + plugin.name + '; requester @' + verified.login + ' permission=' + verified.permission);
 }
@@ -878,6 +894,7 @@ function commandRemoveSubmission(args) {
   }
   const records = pluginRecordsForRepository(submission.repositoryUrl);
   removePluginRecordFiles(records);
+  removeSubmissionFilesForRepository(submission.repositoryUrl);
   if (submissionFile) fs.rmSync(submissionFile, { force: true });
   console.log('removed submission ' + submission.id + ' and ' + records.length + ' plugin record(s); requester @' + (args.by || 'marketplace-admin'));
 }
