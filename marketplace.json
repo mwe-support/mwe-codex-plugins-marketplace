@@ -3,7 +3,7 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-24T13:32:48.005Z",
+  "generatedAt": "2026-06-24T13:33:09.122Z",
   "plugins": [
     {
       "name": "context-mode",
