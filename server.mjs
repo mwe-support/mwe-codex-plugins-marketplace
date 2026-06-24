@@ -259,7 +259,7 @@ function extractRepositoryUrlFromIssue(issue) {
 function reviewStatusFromIssue(issue, comments = []) {
   const commentText = comments.map((comment) => comment.body || '').join('\n');
   if (/管理员已删除上传请求|上传请求已由管理员删除/.test(commentText)) return 'removed';
-  if (/自动审核通过|管理员手动通过/.test(commentText)) return 'approved';
+  if (/自动审核通过并已同步|管理员手动通过上传请求并已同步/.test(commentText)) return 'approved';
   if (/自动审核未通过|安全扫描未通过/.test(commentText)) return 'failed';
   if (issue.state === 'closed') return 'closed';
   return 'reviewing';
