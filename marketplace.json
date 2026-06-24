@@ -3,7 +3,7 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-24T06:08:41.339Z",
+  "generatedAt": "2026-06-24T07:29:12.378Z",
   "plugins": [
     {
       "name": "context7",
@@ -53,23 +53,6 @@
         "ref": "main",
         "path": "marketplace/snapshots/email-protocols-rust",
         "upstreamPath": "plugins/email-protocols-rust",
-        "manifestPath": ".codex-plugin/plugin.json"
-      }
-    },
-    {
-      "name": "testing-react-native-apps",
-      "displayName": "Testing React Native Apps",
-      "version": "0.1.0",
-      "releaseTag": "main",
-      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE",
-      "source": {
-        "type": "local-snapshot",
-        "url": "https://github.com/callstackincubator/agent-skills",
-        "ref": "main",
-        "path": "marketplace/snapshots/testing-react-native-apps",
-        "upstreamPath": "plugins/testing-react-native-apps",
         "manifestPath": ".codex-plugin/plugin.json"
       }
     }

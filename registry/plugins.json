@@ -4,7 +4,7 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-24T06:08:41.339Z"
+    "lastUpdated": "2026-06-24T07:29:12.378Z"
   },
   "plugins": [
     {
@@ -184,91 +184,34 @@
         ],
         "scannedAt": "2026-06-24T03:04:11.000Z"
       }
-    },
-    {
-      "name": "testing-react-native-apps",
-      "displayName": "Testing React Native Apps",
-      "description": "Testing React Native Apps 是来自 callstackincubator/agent-skills 的 Codex 插件。",
-      "longDescription": "Testing React Native Apps 来自 https://github.com/callstackincubator/agent-skills，已通过自动结构校验和静态安全检查。 源仓库说明：Includes React Native skills from callstack/react-native-testing-library and callstackincubator/agent-device for test writing, device-driven verification, accessibility checks, and exploratory QA.",
-      "author": "Callstack",
-      "avatarUrl": "https://github.com/callstackincubator.png?size=96",
-      "category": "Coding",
-      "tags": [
-        "Coding",
-        "Auto Reviewed"
-      ],
-      "capabilities": [
-        "Read",
-        "Write"
-      ],
-      "version": "0.1.0",
-      "releaseTag": "main",
-      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
-      "syncTimestamp": "2026-06-24T03:51:54.428Z",
-      "installPolicy": "AVAILABLE",
-      "source": {
-        "type": "local-snapshot",
-        "url": "https://github.com/callstackincubator/agent-skills",
-        "ref": "main",
-        "path": "marketplace/snapshots/testing-react-native-apps",
-        "upstreamPath": "plugins/testing-react-native-apps",
-        "manifestPath": ".codex-plugin/plugin.json"
-      },
-      "featured": false,
-      "review": {
-        "status": "approved",
-        "reviewedAt": "2026-06-24T03:51:54.428Z",
-        "reviewer": "marketplace-admin",
-        "method": "auto-rules",
-        "rules": [
-          "public GitHub repository cloned",
-          ".codex-plugin/plugin.json discovered",
-          "manifest identity, version, interface and capability fields valid",
-          "README and declared skills/mcp paths present",
-          "scoped security scan blocked by snapshot symlinks"
-        ],
-        "decision": "approved",
-        "reason": "Marketplace admin manually approved blocked security scan findings."
-      },
-      "securityScan": {
-        "status": "warnings",
-        "blocked": false,
-        "findings": [
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/agent-device",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/dogfood",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/react-native-testing",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          }
-        ],
-        "scannedAt": "2026-06-24T03:04:11.000Z",
-        "manuallyApproved": true,
-        "approvedAt": "2026-06-24T03:51:54.428Z",
-        "approvedBy": "marketplace-admin"
-      }
     }
   ],
   "submissions": [
+    {
+      "id": "remove-testing-react-native-apps-a883551b58",
+      "slug": "testing-react-native-apps",
+      "owner": "callstackincubator",
+      "repo": "agent-skills",
+      "displayName": "Agent Skills",
+      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
+      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/6",
+      "status": "removed",
+      "submittedAt": "2026-06-24T07:29:12.336Z",
+      "updatedAt": "2026-06-24T07:29:12.336Z",
+      "reviewer": "marketplace-admin",
+      "decision": "removed",
+      "reason": "marketplace admin requested removal",
+      "pluginName": null,
+      "verifiedStatus": "reviewing",
+      "syncStatus": "pending",
+      "securityScan": null
+    },
     {
       "id": "remove-building-react-native-apps-a883551b58",
       "slug": "building-react-native-apps",
       "owner": "callstackincubator",
       "repo": "agent-skills",
-      "displayName": "Testing React Native Apps",
+      "displayName": "Agent Skills",
       "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
       "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/5",
       "status": "removed",
@@ -277,83 +220,10 @@
       "reviewer": "marketplace-admin",
       "decision": "removed",
       "reason": "marketplace admin requested removal",
-      "pluginName": "testing-react-native-apps",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
-      "securityScan": {
-        "status": "warnings",
-        "blocked": false,
-        "findings": [
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/agent-device",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/dogfood",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/react-native-testing",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          }
-        ],
-        "scannedAt": "2026-06-24T03:04:11.000Z",
-        "manuallyApproved": true,
-        "approvedAt": "2026-06-24T03:51:54.428Z",
-        "approvedBy": "marketplace-admin"
-      }
-    },
-    {
-      "id": "callstackincubator-agent-skills-a883551b58",
-      "slug": "callstackincubator-agent-skills",
-      "owner": "callstackincubator",
-      "repo": "agent-skills",
-      "displayName": "Testing React Native Apps",
-      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/3",
-      "status": "approved",
-      "submittedAt": "2026-06-24T02:58:23.337Z",
-      "updatedAt": "2026-06-24T03:51:54.428Z",
-      "reviewer": "marketplace-admin",
-      "decision": "approved",
-      "reason": "admin manually approved existing plugin(s): building-react-native-apps, testing-react-native-apps",
-      "pluginName": "testing-react-native-apps",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
-      "securityScan": {
-        "status": "warnings",
-        "blocked": false,
-        "findings": [
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/agent-device",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/dogfood",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          },
-          {
-            "id": "snapshot-absolute-symlink",
-            "severity": "high",
-            "path": "skills/react-native-testing",
-            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
-          }
-        ],
-        "scannedAt": "2026-06-24T03:04:11.000Z",
-        "manuallyApproved": true,
-        "approvedAt": "2026-06-24T03:51:54.428Z",
-        "approvedBy": "marketplace-admin"
-      }
+      "pluginName": null,
+      "verifiedStatus": "reviewing",
+      "syncStatus": "pending",
+      "securityScan": null
     },
     {
       "id": "upstash-context7-b88e00bc12",
