@@ -9,16 +9,16 @@
   "submitter": "@mwe-support",
   "status": "approved",
   "submittedAt": "2026-06-24T02:58:23.337Z",
-  "updatedAt": "2026-06-24T02:58:24.509Z",
+  "updatedAt": "2026-06-24T03:51:54.428Z",
   "review": {
     "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/3",
-    "reviewer": "@mwe-support",
+    "reviewer": "marketplace-admin",
     "decision": "approved",
-    "reason": "auto-approved 2 plugin(s): building-react-native-apps, testing-react-native-apps",
+    "reason": "admin manually approved existing plugin(s): building-react-native-apps, testing-react-native-apps",
     "securityScan": {
       "status": "passed",
       "findings": []
     },
-    "reviewedAt": "2026-06-24T02:58:24.509Z"
+    "reviewedAt": "2026-06-24T03:51:54.428Z"
   }
 }

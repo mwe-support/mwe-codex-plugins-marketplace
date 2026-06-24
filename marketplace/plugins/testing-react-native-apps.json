@@ -18,10 +18,10 @@
   "version": "0.1.0",
   "releaseTag": "main",
   "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-  "verifiedStatus": "unverified",
-  "syncStatus": "failed",
-  "syncTimestamp": "2026-06-24T02:58:24.503Z",
-  "installPolicy": "REVIEW_ONLY",
+  "verifiedStatus": "verified",
+  "syncStatus": "synced",
+  "syncTimestamp": "2026-06-24T03:51:54.428Z",
+  "installPolicy": "AVAILABLE",
   "featured": false,
   "source": {
     "type": "local-snapshot",
@@ -32,8 +32,8 @@
     "manifestPath": ".codex-plugin/plugin.json"
   },
   "securityScan": {
-    "status": "blocked",
-    "blocked": true,
+    "status": "warnings",
+    "blocked": false,
     "findings": [
       {
         "id": "snapshot-absolute-symlink",
@@ -54,12 +54,15 @@
         "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
       }
     ],
-    "scannedAt": "2026-06-24T03:04:11.000Z"
+    "scannedAt": "2026-06-24T03:04:11.000Z",
+    "manuallyApproved": true,
+    "approvedAt": "2026-06-24T03:51:54.428Z",
+    "approvedBy": "marketplace-admin"
   },
   "review": {
-    "status": "needs-fix",
-    "reviewedAt": "2026-06-24T02:58:24.503Z",
-    "reviewer": "@mwe-support",
+    "status": "approved",
+    "reviewedAt": "2026-06-24T03:51:54.428Z",
+    "reviewer": "marketplace-admin",
     "method": "auto-rules",
     "rules": [
       "public GitHub repository cloned",
@@ -68,7 +71,7 @@
       "README and declared skills/mcp paths present",
       "scoped security scan blocked by snapshot symlinks"
     ],
-    "decision": "blocked",
-    "reason": "Scoped security scan blocked by dangling absolute symlinks in the marketplace snapshot."
+    "decision": "approved",
+    "reason": "Marketplace admin manually approved blocked security scan findings."
   }
 }
