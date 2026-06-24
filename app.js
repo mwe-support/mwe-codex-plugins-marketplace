@@ -639,14 +639,14 @@ function detailPage(name) {
 
             <section class="panel glass-card removal-panel">
               <h2>删除请求</h2>
-              <p class="helper">仅插件 GitHub 仓库的 owner 或 maintainer 可以删除收录记录。提交后会自动校验权限。</p>
+              <p class="helper">仅插件 GitHub 仓库的 owner 或 maintainer 可以删除收录记录。网页会创建追踪请求，owner 需要在 GitHub issue 中确认。</p>
               <form class="removal-form" data-removal-form novalidate>
                 <input type="hidden" name="pluginName" value="${safe(plugin.name)}" />
                 <input type="hidden" name="repositoryUrl" value="${safe(plugin.repositoryUrl)}" />
                 <div class="field">
                   <label for="removal-requester">GitHub 用户名</label>
                   <input id="removal-requester" name="requester" value="${safe(removalRequester)}" placeholder="owner-login" autocomplete="username" aria-describedby="removal-help removal-error" />
-                  <p id="removal-help" class="helper">填写仓库 owner 或 maintainer 的 GitHub 登录名。</p>
+                  <p id="removal-help" class="helper">填写仓库 owner 或 maintainer 的 GitHub 登录名，用于维护者识别。</p>
                   <p id="removal-error" class="error-text" role="alert">${safe(removalError)}</p>
                 </div>
                 <div class="field">
@@ -655,7 +655,7 @@ function detailPage(name) {
                 </div>
                 <button class="perspective-button secondary" type="submit" ${state.removalLoading && removalActive ? "disabled" : ""}>${icon(state.removalLoading && removalActive ? "loader-circle" : "trash-2", state.removalLoading && removalActive ? "正在提交..." : "申请删除")}</button>
               </form>
-              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>自动流程会校验仓库 owner/maintainer 权限。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
+              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>仓库 owner/maintainer 需要在 GitHub issue 中确认后才会自动删除。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
             </section>
           </aside>
         </div>

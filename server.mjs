@@ -381,7 +381,7 @@ async function createRemovalIssue({ pluginName, repositoryUrl, requester, reason
     console.warn(`Label setup skipped: ${error.message}`);
   }
 
-  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 请求者 GitHub 用户名\n@${requesterLogin}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 权限校验\n自动流程会验证 @${requesterLogin} 是否为 ${owner}/${repo} 的 owner 或 maintainer。校验失败时不会从 Marketplace 删除插件。`;
+  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 请求者 GitHub 用户名\n@${requesterLogin}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 权限校验\n自动流程只信任 GitHub issue 创建者或评论者的真实账号权限。网页表单会创建追踪请求；仓库 owner 或 maintainer 需要在这个 issue 中评论 \`/marketplace remove ${normalizedUrl}\` 才能自动删除。校验失败时不会从 Marketplace 删除插件。`;
   let issue;
   try {
     issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
@@ -430,7 +430,7 @@ async function handleRemoval(request, response) {
     });
     sendJson(response, result.duplicate ? 200 : 201, {
       ...result,
-      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '已提交删除请求，自动流程会校验仓库 owner/maintainer 权限。',
+      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '已提交删除请求。仓库 owner/maintainer 需要在 GitHub issue 中确认后才会自动删除。',
     });
   } catch (error) {
     const status = responseStatusForError(error);

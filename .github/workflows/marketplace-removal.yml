@@ -46,13 +46,13 @@ jobs:
           const pluginMatch = text.match(/###\s*删除插件\s*\n([^\n]+)/);
           const requesterMatch = text.match(/###\s*请求者 GitHub 用户名\s*\n@?([A-Za-z0-9-]{1,39})/);
           const target = commandMatch?.[1] || urlMatch?.[0]?.replace(/\.git$/, '') || pluginMatch?.[1]?.trim();
-          const requester = requesterMatch?.[1] || actor;
+          const requester = actor;
           if (!target) {
             console.error('No plugin name or GitHub repository URL found in removal request.');
             process.exit(1);
           }
           if (!requester) {
-            console.error('No requester GitHub login found in removal request.');
+            console.error('No authenticated GitHub actor found in removal request.');
             process.exit(1);
           }
           console.log('target=' + target);

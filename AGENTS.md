@@ -37,7 +37,7 @@ When adding a page, update this list and verify the new page uses the same theme
 
 ## Interaction Rules
 
-- Deleting a plugin from the marketplace must go through a removal request and must be limited to the plugin GitHub repository owner or maintainer. The workflow must verify this before removing plugin files or snapshots.
+- Deleting a plugin from the marketplace must go through a removal request and must be limited to the plugin GitHub repository owner or maintainer. The workflow must verify the authenticated GitHub issue/comment actor before removing plugin files or snapshots; do not trust an unauthenticated web-form username as proof of ownership.
 - Duplicate plugin submissions are detected by normalized GitHub repository URL and should return a clear user-facing message instead of creating another review issue.
 - Theme switching must not rebuild the whole app or reset the current route. Update theme attributes and pressed states in place.
 - Copy buttons should show a toast and remain usable after theme changes and route changes.
