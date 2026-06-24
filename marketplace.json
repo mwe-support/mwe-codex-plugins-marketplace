@@ -3,25 +3,8 @@
   "name": "codex-community",
   "displayName": "MWE Codex Plugin Marketplace",
   "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
-  "generatedAt": "2026-06-24T06:06:13.797Z",
+  "generatedAt": "2026-06-24T06:08:41.339Z",
   "plugins": [
-    {
-      "name": "building-react-native-apps",
-      "displayName": "Building React Native Apps",
-      "version": "0.1.0",
-      "releaseTag": "main",
-      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "verifiedStatus": "verified",
-      "installPolicy": "AVAILABLE",
-      "source": {
-        "type": "local-snapshot",
-        "url": "https://github.com/callstackincubator/agent-skills",
-        "ref": "main",
-        "path": "marketplace/snapshots/building-react-native-apps",
-        "upstreamPath": "plugins/building-react-native-apps",
-        "manifestPath": ".codex-plugin/plugin.json"
-      }
-    },
     {
       "name": "context7",
       "displayName": "Context7",
