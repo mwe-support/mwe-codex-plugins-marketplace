@@ -40,7 +40,21 @@
       "public GitHub repository cloned",
       ".codex-plugin/plugin.json discovered",
       "manifest identity, version, interface and capability fields valid",
-      "README and declared skills/mcp paths present"
+      "README and declared skills/mcp paths present",
+      "scoped security scan completed with warnings"
     ]
+  },
+  "securityScan": {
+    "status": "warnings",
+    "blocked": false,
+    "findings": [
+      {
+        "id": "binary-provenance-required",
+        "severity": "medium",
+        "path": "bin/email-protocols-mcp.exe",
+        "description": "快照包含 Windows 二进制；sha256 匹配，但仍建议补充 release provenance 或签名验证。"
+      }
+    ],
+    "scannedAt": "2026-06-24T03:04:11.000Z"
   }
 }

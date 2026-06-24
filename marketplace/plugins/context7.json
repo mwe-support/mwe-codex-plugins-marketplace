@@ -39,7 +39,14 @@
       "public GitHub repository cloned",
       ".codex-plugin/plugin.json discovered",
       "manifest identity, version, interface and capability fields valid",
-      "README and declared skills/mcp paths present"
+      "README and declared skills/mcp paths present",
+      "scoped security scan passed"
     ]
+  },
+  "securityScan": {
+    "status": "passed",
+    "blocked": false,
+    "findings": [],
+    "scannedAt": "2026-06-24T03:04:11.000Z"
   }
 }

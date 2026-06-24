@@ -18,10 +18,10 @@
   "version": "0.1.0",
   "releaseTag": "main",
   "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-  "verifiedStatus": "verified",
-  "syncStatus": "synced",
+  "verifiedStatus": "unverified",
+  "syncStatus": "failed",
   "syncTimestamp": "2026-06-24T02:58:24.503Z",
-  "installPolicy": "AVAILABLE",
+  "installPolicy": "REVIEW_ONLY",
   "featured": false,
   "source": {
     "type": "local-snapshot",
@@ -32,13 +32,32 @@
     "manifestPath": ".codex-plugin/plugin.json"
   },
   "securityScan": {
-    "status": "passed",
-    "blocked": false,
-    "scannedAt": "2026-06-24T02:58:24.501Z",
-    "findings": []
+    "status": "blocked",
+    "blocked": true,
+    "findings": [
+      {
+        "id": "snapshot-absolute-symlink",
+        "severity": "high",
+        "path": "skills/agent-device",
+        "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+      },
+      {
+        "id": "snapshot-absolute-symlink",
+        "severity": "high",
+        "path": "skills/dogfood",
+        "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+      },
+      {
+        "id": "snapshot-absolute-symlink",
+        "severity": "high",
+        "path": "skills/react-native-testing",
+        "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+      }
+    ],
+    "scannedAt": "2026-06-24T03:04:11.000Z"
   },
   "review": {
-    "status": "approved",
+    "status": "needs-fix",
     "reviewedAt": "2026-06-24T02:58:24.503Z",
     "reviewer": "@mwe-support",
     "method": "auto-rules",
@@ -47,7 +66,9 @@
       ".codex-plugin/plugin.json discovered",
       "manifest identity, version, interface and capability fields valid",
       "README and declared skills/mcp paths present",
-      "security scan passed"
-    ]
+      "scoped security scan blocked by snapshot symlinks"
+    ],
+    "decision": "blocked",
+    "reason": "Scoped security scan blocked by dangling absolute symlinks in the marketplace snapshot."
   }
 }

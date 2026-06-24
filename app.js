@@ -525,6 +525,7 @@ function perspectivePluginCard(plugin, index = 0) {
         </div>
         ${statusBadge("verified", plugin.verifiedStatus)}
       </div>
+      <div class="perspective-card-security">${securityScanBadge(plugin.securityScan)}</div>
       <p>${safe(plugin.description)}</p>
       <div class="chip-row">${tagList(plugin.tags)}</div>
       <div class="perspective-card-meta">
@@ -590,6 +591,7 @@ function detailPage(name) {
               <li><span>当前版本</span><strong class="mono">${safe(plugin.version)}</strong></li>
               <li><span>Release/tag</span><strong class="mono">${safe(plugin.releaseTag)}</strong></li>
               <li><span>审核状态</span>${statusBadge("verified", plugin.verifiedStatus)}</li>
+              <li><span>安全扫描</span>${securityScanBadge(plugin.securityScan)}</li>
               <li><span>同步状态</span>${statusBadge("sync", plugin.syncStatus)}</li>
               <li><span>最近同步</span><strong>${formatDate(plugin.syncTimestamp)}</strong></li>
             </ul>

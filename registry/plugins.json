@@ -4,7 +4,7 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-24T02:58:24.549Z"
+    "lastUpdated": "2026-06-24T03:17:34.495Z"
   },
   "plugins": [
     {
@@ -26,10 +26,10 @@
       "version": "0.1.0",
       "releaseTag": "main",
       "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
+      "verifiedStatus": "unverified",
+      "syncStatus": "failed",
       "syncTimestamp": "2026-06-24T02:58:24.500Z",
-      "installPolicy": "AVAILABLE",
+      "installPolicy": "REVIEW_ONLY",
       "source": {
         "type": "local-snapshot",
         "url": "https://github.com/callstackincubator/agent-skills",
@@ -40,7 +40,7 @@
       },
       "featured": false,
       "review": {
-        "status": "approved",
+        "status": "needs-fix",
         "reviewedAt": "2026-06-24T02:58:24.500Z",
         "reviewer": "@mwe-support",
         "method": "auto-rules",
@@ -49,14 +49,35 @@
           ".codex-plugin/plugin.json discovered",
           "manifest identity, version, interface and capability fields valid",
           "README and declared skills/mcp paths present",
-          "security scan passed"
-        ]
+          "scoped security scan blocked by snapshot symlinks"
+        ],
+        "decision": "blocked",
+        "reason": "Scoped security scan blocked by dangling absolute symlinks in the marketplace snapshot."
       },
       "securityScan": {
-        "status": "passed",
-        "blocked": false,
-        "scannedAt": "2026-06-24T02:58:24.497Z",
-        "findings": []
+        "status": "blocked",
+        "blocked": true,
+        "findings": [
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/react-native-best-practices",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/upgrading-react-native",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/vercel-react-native-skills",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
       }
     },
     {
@@ -99,10 +120,16 @@
           "public GitHub repository cloned",
           ".codex-plugin/plugin.json discovered",
           "manifest identity, version, interface and capability fields valid",
-          "README and declared skills/mcp paths present"
+          "README and declared skills/mcp paths present",
+          "scoped security scan passed"
         ]
       },
-      "securityScan": null
+      "securityScan": {
+        "status": "passed",
+        "blocked": false,
+        "findings": [],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     },
     {
       "name": "cowart",
@@ -148,10 +175,29 @@
           "public GitHub repository cloned",
           ".codex-plugin/plugin.json discovered",
           "manifest identity, version, interface and capability fields valid",
-          "README and declared skills/mcp paths present"
+          "README and declared skills/mcp paths present",
+          "scoped security scan completed with warnings"
         ]
       },
-      "securityScan": null
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "findings": [
+          {
+            "id": "cowart-npm-install-policy",
+            "severity": "low",
+            "path": "scripts/start-canvas.sh",
+            "description": "启动脚本在依赖缺失时自动 npm install，建议改为锁定依赖和显式安装确认。"
+          },
+          {
+            "id": "GHSA-g7r4-m6w7-qqqr",
+            "severity": "low",
+            "path": "package-lock.json",
+            "description": "npm audit 报告 esbuild 开发服务器低危 advisory，建议升级相关依赖。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     },
     {
       "name": "email-protocols-rust",
@@ -194,10 +240,23 @@
           "public GitHub repository cloned",
           ".codex-plugin/plugin.json discovered",
           "manifest identity, version, interface and capability fields valid",
-          "README and declared skills/mcp paths present"
+          "README and declared skills/mcp paths present",
+          "scoped security scan completed with warnings"
         ]
       },
-      "securityScan": null
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "findings": [
+          {
+            "id": "binary-provenance-required",
+            "severity": "medium",
+            "path": "bin/email-protocols-mcp.exe",
+            "description": "快照包含 Windows 二进制；sha256 匹配，但仍建议补充 release provenance 或签名验证。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     },
     {
       "name": "testing-react-native-apps",
@@ -218,10 +277,10 @@
       "version": "0.1.0",
       "releaseTag": "main",
       "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
+      "verifiedStatus": "unverified",
+      "syncStatus": "failed",
       "syncTimestamp": "2026-06-24T02:58:24.503Z",
-      "installPolicy": "AVAILABLE",
+      "installPolicy": "REVIEW_ONLY",
       "source": {
         "type": "local-snapshot",
         "url": "https://github.com/callstackincubator/agent-skills",
@@ -232,7 +291,7 @@
       },
       "featured": false,
       "review": {
-        "status": "approved",
+        "status": "needs-fix",
         "reviewedAt": "2026-06-24T02:58:24.503Z",
         "reviewer": "@mwe-support",
         "method": "auto-rules",
@@ -241,14 +300,35 @@
           ".codex-plugin/plugin.json discovered",
           "manifest identity, version, interface and capability fields valid",
           "README and declared skills/mcp paths present",
-          "security scan passed"
-        ]
+          "scoped security scan blocked by snapshot symlinks"
+        ],
+        "decision": "blocked",
+        "reason": "Scoped security scan blocked by dangling absolute symlinks in the marketplace snapshot."
       },
       "securityScan": {
-        "status": "passed",
-        "blocked": false,
-        "scannedAt": "2026-06-24T02:58:24.501Z",
-        "findings": []
+        "status": "blocked",
+        "blocked": true,
+        "findings": [
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/agent-device",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/dogfood",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/react-native-testing",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
       }
     }
   ],
@@ -268,13 +348,32 @@
       "decision": "approved",
       "reason": "auto-approved 2 plugin(s): building-react-native-apps, testing-react-native-apps",
       "pluginName": "building-react-native-apps",
-      "verifiedStatus": "verified",
-      "syncStatus": "synced",
+      "verifiedStatus": "unverified",
+      "syncStatus": "failed",
       "securityScan": {
-        "status": "passed",
-        "blocked": false,
-        "scannedAt": "2026-06-24T02:58:24.497Z",
-        "findings": []
+        "status": "blocked",
+        "blocked": true,
+        "findings": [
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/react-native-best-practices",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/upgrading-react-native",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          },
+          {
+            "id": "snapshot-absolute-symlink",
+            "severity": "high",
+            "path": "skills/vercel-react-native-skills",
+            "description": "快照包含指向临时 clone 目录的绝对 dangling symlink，需重新生成真实目录快照。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
       }
     },
     {
@@ -294,7 +393,12 @@
       "pluginName": "context7",
       "verifiedStatus": "verified",
       "syncStatus": "synced",
-      "securityScan": null
+      "securityScan": {
+        "status": "passed",
+        "blocked": false,
+        "findings": [],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     },
     {
       "id": "zhongerxin-cowart-54fca25df8",
@@ -313,7 +417,25 @@
       "pluginName": "cowart",
       "verifiedStatus": "verified",
       "syncStatus": "synced",
-      "securityScan": null
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "findings": [
+          {
+            "id": "cowart-npm-install-policy",
+            "severity": "low",
+            "path": "scripts/start-canvas.sh",
+            "description": "启动脚本在依赖缺失时自动 npm install，建议改为锁定依赖和显式安装确认。"
+          },
+          {
+            "id": "GHSA-g7r4-m6w7-qqqr",
+            "severity": "low",
+            "path": "package-lock.json",
+            "description": "npm audit 报告 esbuild 开发服务器低危 advisory，建议升级相关依赖。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     },
     {
       "id": "mwe-support-mwe-codex-email-protocols-plugin-a0876a7b6f",
@@ -332,7 +454,19 @@
       "pluginName": "email-protocols-rust",
       "verifiedStatus": "verified",
       "syncStatus": "synced",
-      "securityScan": null
+      "securityScan": {
+        "status": "warnings",
+        "blocked": false,
+        "findings": [
+          {
+            "id": "binary-provenance-required",
+            "severity": "medium",
+            "path": "bin/email-protocols-mcp.exe",
+            "description": "快照包含 Windows 二进制；sha256 匹配，但仍建议补充 release provenance 或签名验证。"
+          }
+        ],
+        "scannedAt": "2026-06-24T03:04:11.000Z"
+      }
     }
   ]
 }

@@ -43,7 +43,27 @@
       "public GitHub repository cloned",
       ".codex-plugin/plugin.json discovered",
       "manifest identity, version, interface and capability fields valid",
-      "README and declared skills/mcp paths present"
+      "README and declared skills/mcp paths present",
+      "scoped security scan completed with warnings"
     ]
+  },
+  "securityScan": {
+    "status": "warnings",
+    "blocked": false,
+    "findings": [
+      {
+        "id": "cowart-npm-install-policy",
+        "severity": "low",
+        "path": "scripts/start-canvas.sh",
+        "description": "启动脚本在依赖缺失时自动 npm install，建议改为锁定依赖和显式安装确认。"
+      },
+      {
+        "id": "GHSA-g7r4-m6w7-qqqr",
+        "severity": "low",
+        "path": "package-lock.json",
+        "description": "npm audit 报告 esbuild 开发服务器低危 advisory，建议升级相关依赖。"
+      }
+    ],
+    "scannedAt": "2026-06-24T03:04:11.000Z"
   }
 }

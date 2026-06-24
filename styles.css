@@ -3933,3 +3933,14 @@ body {
 :root[data-theme="light"] .plugin-detail-page .removal-form .error-text {
   color: #be123c;
 }
+
+.perspective-card-security {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -2px;
+}
+
+.perspective-plugin-card .security-badge {
+  margin-bottom: 2px;
+}
