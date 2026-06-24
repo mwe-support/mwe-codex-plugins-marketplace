@@ -3615,3 +3615,246 @@ body {
     padding: 24px;
   }
 }
+
+
+/* Unified Perspective standard content pages. */
+.standard-page {
+  width: min(1152px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 72px 0 96px;
+  overflow: visible;
+}
+
+.standard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 24px;
+  align-items: start;
+}
+
+.standard-single {
+  width: min(880px, 100%);
+  margin: 0 auto;
+}
+
+.standard-card {
+  border: 1px solid var(--ps-border);
+  border-radius: 20px;
+  background: var(--ps-glass);
+  color: var(--ps-heading);
+  box-shadow: var(--ps-shadow-lg);
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+
+.standard-page .detail-card,
+.standard-page .panel {
+  padding: 28px;
+}
+
+.standard-page h1 {
+  max-width: 760px;
+  margin: 0 0 12px;
+  color: var(--ps-heading);
+  font-size: clamp(36px, 5vw, 64px);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.standard-page h2 {
+  margin: 0;
+  color: var(--ps-heading);
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.standard-page .lede,
+.standard-page .helper,
+.standard-page p,
+.standard-page .detail-list span {
+  color: var(--ps-body);
+}
+
+.standard-page .lede {
+  max-width: 760px;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.standard-page .detail-section {
+  margin-top: 28px;
+}
+
+.standard-page .form-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.standard-page .field {
+  display: grid;
+  gap: 8px;
+}
+
+.standard-page .field label {
+  color: var(--ps-heading);
+  font-weight: 700;
+}
+
+.standard-page input,
+.standard-page textarea {
+  width: 100%;
+  border: 1px solid var(--ps-border);
+  border-radius: 16px;
+  background: var(--ps-neutral-medium);
+  color: var(--ps-heading);
+  box-shadow: var(--ps-shadow-xs);
+}
+
+.standard-page input {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.standard-page textarea {
+  min-height: 124px;
+  padding: 14px;
+  resize: vertical;
+}
+
+.standard-page input::placeholder,
+.standard-page textarea::placeholder {
+  color: var(--ps-body);
+}
+
+.standard-page input:focus,
+.standard-page textarea:focus {
+  border-color: var(--ps-brand);
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ps-brand) 42%, transparent);
+}
+
+.standard-page .code-box,
+.standard-page .install-choice,
+.standard-page .notice-box,
+.standard-page .success-box,
+.standard-page .error-box {
+  border: 1px solid var(--ps-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.standard-page .code-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+}
+
+.standard-page .code-box code {
+  color: var(--ps-heading);
+  overflow-wrap: anywhere;
+}
+
+.standard-page .copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ps-border);
+  border-radius: 14px;
+  background: var(--ps-neutral-medium);
+  color: var(--ps-heading);
+  box-shadow: var(--ps-shadow-xs);
+}
+
+.standard-page .copy-button:hover {
+  background: var(--ps-glass-hover);
+}
+
+.standard-page .detail-list li {
+  border-bottom-color: var(--ps-border);
+}
+
+.standard-page .timeline-item {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ps-border);
+  border-radius: 16px;
+}
+
+.standard-page .timeline-icon {
+  background: rgba(77, 154, 255, 0.16);
+  color: var(--ps-brand-strong);
+}
+
+.standard-page .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.standard-page .form-actions .perspective-button {
+  min-width: 160px;
+}
+
+.standard-page .error-text {
+  min-height: 18px;
+  margin: 0;
+  color: #fecdd3;
+  font-size: 13px;
+}
+
+.standard-page .success-box {
+  border-color: rgba(16, 185, 129, 0.42);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.standard-page .error-box {
+  border-color: rgba(244, 63, 94, 0.42);
+  background: rgba(244, 63, 94, 0.12);
+}
+
+:root[data-theme="light"] .standard-card,
+:root[data-theme="light"] .standard-page .code-box,
+:root[data-theme="light"] .standard-page .install-choice,
+:root[data-theme="light"] .standard-page .notice-box,
+:root[data-theme="light"] .standard-page .timeline-item {
+  background: rgba(255, 255, 255, 0.68);
+  border-color: var(--ps-border);
+}
+
+:root[data-theme="light"] .standard-page input,
+:root[data-theme="light"] .standard-page textarea,
+:root[data-theme="light"] .standard-page .copy-button {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--ps-border);
+  color: var(--ps-heading);
+}
+
+:root[data-theme="light"] .standard-page .error-text {
+  color: #be123c;
+}
+
+@media (max-width: 900px) {
+  .standard-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .standard-page {
+    width: min(100% - 32px, 1152px);
+    padding-top: 48px;
+  }
+
+  .standard-page .detail-card,
+  .standard-page .panel {
+    padding: 20px;
+  }
+
+  .standard-page .form-actions .perspective-button {
+    width: 100%;
+  }
+}

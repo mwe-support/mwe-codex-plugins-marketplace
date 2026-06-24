@@ -107,7 +107,14 @@ function setThemeMode(mode) {
   localStorage.setItem("marketplace-theme-mode", mode);
   localStorage.removeItem("marketplace-theme");
   applyTheme();
-  render();
+  syncThemeControls();
+}
+
+function syncThemeControls() {
+  const mode = themeMode();
+  document.querySelectorAll("[data-theme-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.themeMode === mode));
+  });
 }
 
 async function loadRegistry() {
@@ -208,6 +215,17 @@ function pluginInstallCommand(plugin) {
   return `codex plugin add ${plugin.name}@${registry.marketplace.name || "codex-community"}`;
 }
 
+function pageShell(content, pageClass = "standard-page") {
+  return `
+    <div class="perspective-app">
+      ${header()}
+      <main id="main" class="perspective-page ${pageClass}">
+        ${content}
+      </main>
+    </div>
+  `;
+}
+
 function pluginCopyActions(plugin, variant = "card") {
   if (plugin.verifiedStatus !== "verified" || plugin.installPolicy === "REVIEW_ONLY") {
     return `<span class="install-note">通过审核后开放单独安装</span>`;
@@ -262,7 +280,7 @@ function header() {
               )
               .join("")}
           </div>
-          <a class="button secondary" href="/install" data-link>${icon("monitor", "Codex Desktop")}</a>
+          <a class="perspective-button secondary" href="/install" data-link>${icon("monitor", "Codex Desktop")}</a>
         </div>
       </div>
     </header>
@@ -282,8 +300,8 @@ function emptyState() {
         <h2>没有找到插件</h2>
         <p class="lede">试试清空筛选、切换分类，或者把你希望收录的 GitHub 仓库提交给维护者。</p>
         <div class="form-actions" style="justify-content:center;">
-          <button class="button secondary" type="button" data-clear-filters>${icon("rotate-ccw", "清空筛选")}</button>
-          <a class="button" href="/submit" data-link>${icon("plus", "提交插件")}</a>
+          <button class="perspective-button secondary" type="button" data-clear-filters>${icon("rotate-ccw", "清空筛选")}</button>
+          <a class="perspective-button primary" href="/submit" data-link>${icon("plus", "提交插件")}</a>
         </div>
       </div>
     </div>
@@ -616,12 +634,10 @@ function submitPage() {
   const url = document.querySelector("#repo-url")?.value || "";
   const note = document.querySelector("#submit-note")?.value || "";
   const error = state.submitTouched ? validateGithubUrl(url) : "";
-  return `
-    ${header()}
-    <main id="main" class="page">
-      <div class="detail-layout">
-        <section class="detail-card">
-          <span class="eyebrow">${icon("git-pull-request", "提交插件")}</span>
+  return pageShell(`
+      <div class="detail-layout standard-layout">
+        <section class="detail-card glass-card standard-card">
+          <span class="perspective-kicker">${icon("git-pull-request", "提交插件")}</span>
           <h1>分享一个 Codex 插件 GitHub 仓库</h1>
           <p class="lede">在这里提交仓库链接即可进入自动审核队列。系统会代你创建追踪 issue，不需要跳转到 GitHub 再手动确认。</p>
 
@@ -637,10 +653,10 @@ function submitPage() {
               <textarea id="submit-note" name="note" placeholder="插件用途、目标用户、需要注意的权限或安装说明">${safe(note)}</textarea>
             </div>
             <div class="form-actions">
-              <button class="button" type="submit" ${state.submitLoading ? "disabled" : ""}>
+              <button class="perspective-button primary" type="submit" ${state.submitLoading ? "disabled" : ""}>
                 ${icon(state.submitLoading ? "loader-circle" : "send", state.submitLoading ? "正在提交审核..." : "提交审核")}
               </button>
-              <a class="button secondary" href="/about" data-link>${icon("shield-check", "查看审核规则")}</a>
+              <a class="perspective-button secondary" href="/about" data-link>${icon("shield-check", "查看审核规则")}</a>
             </div>
           </form>
 
@@ -651,13 +667,13 @@ function submitPage() {
           }
           ${
             state.submitSuccessUrl
-              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。</p><a class="button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a></div>`
+              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。</p><a class="perspective-button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a></div>`
               : ""
           }
         </section>
 
         <aside class="sidebar">
-          <section class="panel">
+          <section class="panel glass-card standard-card">
             <h2>自动校验</h2>
             <div class="timeline">
               ${timelineItem("file-json", "Manifest", "检查 name、version、author、interface、capabilities 字段。")}
@@ -668,16 +684,13 @@ function submitPage() {
           </section>
         </aside>
       </div>
-    </main>
-  `;
+  `, "standard-page submit-page");
 }
 
 function installPage() {
-  return `
-    ${header()}
-    <main id="main" class="page">
-      <section class="detail-card">
-        <span class="eyebrow">${icon("download", "Install Marketplace")}</span>
+  return pageShell(`
+      <section class="detail-card glass-card standard-card standard-single">
+        <span class="perspective-kicker">${icon("download", "Install Marketplace")}</span>
         <h1>把社区 Marketplace 添加到 Codex</h1>
         <p class="lede">添加后，Codex Desktop 会从这个 GitHub 仓库读取 <code>marketplace.json</code> 和已审核插件快照。</p>
 
@@ -712,16 +725,13 @@ function installPage() {
           <p>中央仓库用于批量发现和同步插件；单插件 CLI 命令用于精确安装某个已验证插件。自动审核规则通过后，Action 会更新 registry 和 marketplace 快照，网页与 Codex marketplace 都会同步出现该插件。</p>
         </div>
       </section>
-    </main>
-  `;
+  `, "standard-page install-page");
 }
 
 function aboutPage() {
-  return `
-    ${header()}
-    <main id="main" class="page">
-      <section class="detail-card">
-        <span class="eyebrow">${icon("shield-check", "审核规则")}</span>
+  return pageShell(`
+      <section class="detail-card glass-card standard-card standard-single">
+        <span class="perspective-kicker">${icon("shield-check", "审核规则")}</span>
         <h1>社区收录规则</h1>
         <p class="lede">这个市场优先保证插件可安装、来源可追踪、风险可说明。增长很重要，但信任更重要。</p>
 
@@ -740,21 +750,19 @@ function aboutPage() {
           <p>审核 Action 不会执行插件代码；只做 manifest、README、skills/mcp 路径校验，并增加静态安全扫描。明显危险的远程脚本执行、根目录删除、磁盘擦除等规则会阻断自动同步，可疑安装钩子会进入看板提醒。</p>
         </div>
       </section>
-    </main>
-  `;
+  `, "standard-page about-page");
 }
 
 function notFoundPage() {
-  return `
-    ${header()}
-    <main id="main" class="page">
-      ${emptyState()}
-    </main>
-  `;
+  return pageShell(`
+      <section class="glass-card standard-card standard-single perspective-empty">
+        ${emptyState()}
+      </section>
+  `, "standard-page not-found-page");
 }
-
 function render() {
   document.documentElement.dataset.theme = currentTheme();
+  document.documentElement.dataset.themeMode = themeMode();
   const path = state.route;
   let view = perspectivePage();
   if (path.startsWith("/plugins/")) view = detailPage(decodeURIComponent(path.split("/").filter(Boolean).pop() || ""));
@@ -914,7 +922,7 @@ window.addEventListener("popstate", () => {
 window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
   if (themeMode() === "system") {
     applyTheme();
-    render();
+    syncThemeControls();
   }
 });
 
