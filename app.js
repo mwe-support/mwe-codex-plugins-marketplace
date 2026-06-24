@@ -876,7 +876,6 @@ function attachEvents() {
   const repoInput = document.querySelector("#repo-url");
   repoInput?.addEventListener("blur", () => {
     state.submitTouched = true;
-    render();
   });
 
   attachRemovalForm();

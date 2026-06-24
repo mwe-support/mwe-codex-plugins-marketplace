@@ -180,8 +180,12 @@ async function findRegistrySubmissionByRepository(repositoryUrl) {
   return (registry.submissions || []).find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && ['reviewing', 'approved'].includes(item.status)) || null;
 }
 
+function issueLabelNames(issue) {
+  return (issue.labels || []).map((label) => label?.name).filter(Boolean);
+}
+
 function issueHasLabel(issue, labelName) {
-  return (issue.labels || []).some((label) => label.name === labelName);
+  return issueLabelNames(issue).includes(labelName);
 }
 
 async function findExistingRemovalIssue(normalizedUrl) {
@@ -225,7 +229,7 @@ async function listSubmissionProgress() {
     for (const issue of Array.isArray(issues) ? issues : []) {
       if (issue.pull_request) continue;
       const repositoryUrl = extractRepositoryUrlFromIssue(issue);
-      const labelNames = (issue.labels || []).map((label) => label.name);
+      const labelNames = issueLabelNames(issue);
       if (!repositoryUrl && !labelNames.includes('plugin-submission')) continue;
       const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
       const local = repositoryUrl ? localByRepo.get(repositoryUrl) : null;
