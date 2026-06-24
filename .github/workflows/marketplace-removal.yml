@@ -41,13 +41,10 @@ jobs:
           const body = eventName === 'issue_comment' ? process.env.COMMENT_BODY : process.env.ISSUE_BODY;
           const actor = eventName === 'issue_comment' ? process.env.COMMENT_ACTOR : process.env.ISSUE_ACTOR;
           const text = String(body || '');
-          const urlMatch = text.match(/https://github.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/);
-          const commandMatch = text.match(//marketplaces+removes+(S+)/);
-          const pluginMatch = text.match(/###s*删除插件s*
-([^
-]+)/);
-          const requesterMatch = text.match(/###s*请求者 GitHub 用户名s*
-@?([A-Za-z0-9-]{1,39})/);
+          const urlMatch = text.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
+          const commandMatch = text.match(/\/marketplace\s+remove\s+(\S+)/);
+          const pluginMatch = text.match(/###\s*删除插件\s*\n([^\n]+)/);
+          const requesterMatch = text.match(/###\s*请求者 GitHub 用户名\s*\n@?([A-Za-z0-9-]{1,39})/);
           const target = commandMatch?.[1] || urlMatch?.[0]?.replace(/\.git$/, '') || pluginMatch?.[1]?.trim();
           const requester = requesterMatch?.[1] || actor;
           if (!target) {
