@@ -194,12 +194,17 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
     const iface = manifest.interface || {};
     const ref = args.ref || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoDir }) || 'main';
     const timestamp = now();
+    const displayName = args['display-name'] || iface.displayName || titleFromRepo(manifest.name);
+    const sourceDescription = iface.shortDescription || manifest.description;
+    const sourceLongDescription = iface.longDescription || firstParagraph(readme) || sourceDescription;
+    const fallbackDescription = displayName + ' 是来自 ' + repo.owner + '/' + repo.repo + ' 的 Codex 插件。';
+    const fallbackLongDescription = displayName + ' 来自 ' + repo.repositoryUrl + '，已通过自动结构校验和静态安全检查。';
     return {
       schemaVersion: 1,
       name: args.name || manifest.name,
-      displayName: args['display-name'] || iface.displayName || titleFromRepo(manifest.name),
-      description: args.description || iface.shortDescription || manifest.description,
-      longDescription: args['long-description'] || iface.longDescription || firstParagraph(readme) || iface.shortDescription || manifest.description,
+      displayName,
+      description: marketplaceDescription(args.description || sourceDescription, fallbackDescription),
+      longDescription: marketplaceLongDescription(args['long-description'] || sourceLongDescription, fallbackLongDescription, sourceLongDescription),
       author: args.author || authorName(manifest.author, iface.developerName || repo.owner),
       avatarUrl: args['avatar-url'] || 'https://github.com/' + repo.owner + '.png?size=96',
       category: args.category || iface.category || 'Community',
@@ -343,6 +348,18 @@ function validateChineseMarketplaceText(plugin) {
     }
   }
   return errors;
+}
+
+function marketplaceDescription(value, fallback) {
+  const text = String(value || '').trim();
+  return containsChinese(text) ? text : fallback;
+}
+
+function marketplaceLongDescription(value, fallback, sourceText) {
+  const text = String(value || '').trim();
+  if (containsChinese(text)) return text;
+  const source = String(sourceText || '').trim();
+  return source ? fallback + ' 源仓库说明：' + source : fallback;
 }
 
 function normalizePlugin(plugin) {

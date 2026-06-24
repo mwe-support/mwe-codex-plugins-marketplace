@@ -269,7 +269,7 @@ async function createSubmissionIssue({ repositoryUrl, note }) {
 
   const { normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
   const listedPlugin = await findRegistryPluginByRepository(normalizedUrl);
-  if (listedPlugin?.installPolicy !== 'REVIEW_ONLY') {
+  if (listedPlugin && listedPlugin.installPolicy !== 'REVIEW_ONLY') {
     return {
       duplicate: true,
       duplicateType: 'listed',
@@ -477,6 +477,7 @@ async function handleSubmission(request, response) {
         : '已提交，自动审核已进入队列。',
     });
   } catch (error) {
+    console.error('Submission failed:', error.stack || error.message);
     const status = responseStatusForError(error);
     sendJson(response, status, { error: error.message || '提交失败，请稍后重试。' });
   }
