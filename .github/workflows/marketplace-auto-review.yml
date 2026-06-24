@@ -119,12 +119,15 @@ jobs:
             fi
           else
             DETAIL="$(tail -n 40 auto-review.log 2>/dev/null || true)"
-            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。提交仓库：$SUBMISSION_URL
+            cat > comment.md <<EOF
+            自动审核未通过。提交仓库：$SUBMISSION_URL
 
-失败详情：
-\`\`\`text
-$DETAIL
-\`\`\`
+            失败详情：
+            ```text
+            $DETAIL
+            ```
 
-可以调整插件 manifest 后重新编辑 issue，或由管理员手动通过。"
+            可以调整插件 manifest 后重新编辑 issue，或由管理员手动通过。
+            EOF
+            gh issue comment "$ISSUE_NUMBER" --body-file comment.md
           fi
