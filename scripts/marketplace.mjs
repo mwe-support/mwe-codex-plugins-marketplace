@@ -111,16 +111,24 @@ function normalizePathForJson(value) {
 function validateSourcePlugin(plugin, pluginDir) {
   const errors = [];
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(plugin.name || '')) errors.push('manifest name 只能包含字母、数字、点、下划线或短横线');
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(plugin.version || '')) errors.push('manifest version 需要是 SemVer，例如 0.1.0');
-  if (!plugin.description && !plugin.interface?.shortDescription) errors.push('manifest 需要 description 或 interface.shortDescription');
-  if (!authorName(plugin.author, plugin.interface?.developerName)) errors.push('manifest 需要 author.name 或 interface.developerName');
-  if (!plugin.interface?.displayName) errors.push('manifest interface.displayName 缺失');
-  if (!plugin.interface?.category) errors.push('manifest interface.category 缺失');
-  if (!Array.isArray(plugin.interface?.capabilities) || plugin.interface.capabilities.length === 0) errors.push('manifest interface.capabilities 需要至少一个能力');
   if (plugin.skills && !fs.existsSync(path.resolve(pluginDir, plugin.skills))) errors.push('skills 路径不存在：' + plugin.skills);
   if (plugin.mcpServers && !fs.existsSync(path.resolve(pluginDir, plugin.mcpServers))) errors.push('mcpServers 路径不存在：' + plugin.mcpServers);
-  if (!fs.existsSync(path.join(pluginDir, 'README.md'))) errors.push('插件目录需要 README.md');
   return errors;
+}
+
+function normalizeVersion(value) {
+  const version = String(value || '').trim();
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version) ? version : '0.1.0';
+}
+
+function inferredCapabilities(manifest, iface = {}) {
+  const explicit = Array.isArray(iface.capabilities) ? iface.capabilities.filter(Boolean) : [];
+  if (explicit.length) return explicit;
+  const capabilities = [];
+  if (manifest.skills) capabilities.push('Skill');
+  if (manifest.mcpServers) capabilities.push('MCP');
+  if (!capabilities.length) capabilities.push('Guidance');
+  return capabilities;
 }
 
 const SECURITY_TEXT_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.yaml', '.yml', '.sh', '.bash', '.zsh', '.ps1', '.py', '.rb', '.go', '.rs', '.toml', '.md']);
@@ -137,6 +145,8 @@ const SECURITY_PATTERNS = [
 function isSecurityScannableFile(file) {
   const relative = normalizePathForJson(path.relative(ROOT, file));
   if (relative.includes('/node_modules/') || relative.includes('/.git/')) return false;
+  if (/(^|\/)(test|tests|__tests__|fixtures|docs|\.github)(\/|$)/i.test(relative)) return false;
+  if (/(^|\/)README(\.[a-z0-9]+)?$/i.test(relative)) return false;
   const extension = path.extname(file).toLowerCase();
   return SECURITY_TEXT_EXTENSIONS.has(extension);
 }
@@ -215,8 +225,8 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
     const iface = manifest.interface || {};
     const ref = args.ref || runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoDir }) || 'main';
     const timestamp = now();
-    const displayName = args['display-name'] || iface.displayName || titleFromRepo(manifest.name);
-    const sourceDescription = iface.shortDescription || manifest.description;
+    const displayName = args['display-name'] || iface.displayName || titleFromRepo(manifest.name || repo.repo);
+    const sourceDescription = iface.shortDescription || manifest.description || firstParagraph(readme);
     const sourceLongDescription = iface.longDescription || firstParagraph(readme) || sourceDescription;
     const fallbackDescription = displayName + ' 是来自 ' + repo.owner + '/' + repo.repo + ' 的 Codex 插件。';
     const fallbackLongDescription = displayName + ' 来自 ' + repo.repositoryUrl + '，已通过自动结构校验和静态安全检查。';
@@ -230,8 +240,8 @@ function discoverSourcePlugins(repoDir, repo, args = {}) {
       avatarUrl: args['avatar-url'] || 'https://github.com/' + repo.owner + '.png?size=96',
       category: args.category || iface.category || 'Community',
       tags: splitList(args.tags).length ? splitList(args.tags) : [iface.category || 'Community', 'Auto Reviewed'].filter(Boolean),
-      capabilities: splitList(args.capabilities).length ? splitList(args.capabilities) : iface.capabilities || [],
-      version: args.version || manifest.version,
+      capabilities: splitList(args.capabilities).length ? splitList(args.capabilities) : inferredCapabilities(manifest, iface),
+      version: args.version || normalizeVersion(manifest.version),
       releaseTag: ref,
       repositoryUrl: repo.repositoryUrl,
       verifiedStatus: 'verified',

@@ -66,21 +66,25 @@ jobs:
           console.log(`admin_action=${adminAction}`);
           NODE
       - name: Auto-review and sync marketplace
+        id: review
         env:
           SUBMISSION_URL: ${{ steps.extract.outputs.url }}
           SUBMITTER: ${{ github.actor }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
           ADMIN_ACTION: ${{ steps.extract.outputs.admin_action }}
         run: |
-          if [ "$ADMIN_ACTION" = "remove-submission" ]; then
-            node scripts/marketplace.mjs remove-submission "$SUBMISSION_URL" --by "marketplace-admin" --issue "$ISSUE_URL" --reason "marketplace admin removed failed submission"
-          elif [ "$ADMIN_ACTION" = "manual-approve" ]; then
-            node scripts/marketplace.mjs auto-review "$SUBMISSION_URL" --by "marketplace-admin" --issue "$ISSUE_URL" --manual-approve true
-          else
-            node scripts/marketplace.mjs auto-review "$SUBMISSION_URL" --by "@$SUBMITTER" --issue "$ISSUE_URL"
-          fi
-          node scripts/marketplace.mjs sync
-          node scripts/marketplace.mjs sync --check
+          set -o pipefail
+          {
+            if [ "$ADMIN_ACTION" = "remove-submission" ]; then
+              node scripts/marketplace.mjs remove-submission "$SUBMISSION_URL" --by "marketplace-admin" --issue "$ISSUE_URL" --reason "marketplace admin removed failed submission"
+            elif [ "$ADMIN_ACTION" = "manual-approve" ]; then
+              node scripts/marketplace.mjs auto-review "$SUBMISSION_URL" --by "marketplace-admin" --issue "$ISSUE_URL" --manual-approve true
+            else
+              node scripts/marketplace.mjs auto-review "$SUBMISSION_URL" --by "@$SUBMITTER" --issue "$ISSUE_URL"
+            fi
+            node scripts/marketplace.mjs sync
+            node scripts/marketplace.mjs sync --check
+          } 2>&1 | tee auto-review.log
       - name: Commit approved plugin
         id: commit
         run: |
@@ -114,5 +118,13 @@ jobs:
               gh issue comment "$ISSUE_NUMBER" --body "自动审核通过并已同步 Marketplace。提交仓库：$SUBMISSION_URL；静态安全扫描已完成；是否产生新提交：${CHANGED:-unknown}。"
             fi
           else
-            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。请检查仓库是否包含有效的 .codex-plugin/plugin.json、README、skills/mcp 路径、SemVer 版本，并确认静态安全扫描没有命中高危规则。"
+            DETAIL="$(tail -n 40 auto-review.log 2>/dev/null || true)"
+            gh issue comment "$ISSUE_NUMBER" --body "自动审核未通过。提交仓库：$SUBMISSION_URL
+
+失败详情：
+\`\`\`text
+$DETAIL
+\`\`\`
+
+可以调整插件 manifest 后重新编辑 issue，或由管理员手动通过。"
           fi

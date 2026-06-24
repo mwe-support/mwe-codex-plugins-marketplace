@@ -273,9 +273,64 @@ function localSubmissionMap(registry) {
   return map;
 }
 
+let githubSubmissionOverlayCache = { expiresAt: 0, items: new Map() };
+
+async function githubSubmissionOverlayMap() {
+  if (!API_TOKEN) return new Map();
+  const now = Date.now();
+  if (githubSubmissionOverlayCache.expiresAt > now) return githubSubmissionOverlayCache.items;
+  const items = new Map();
+  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
+  for (const issue of Array.isArray(issues) ? issues : []) {
+    if (issue.pull_request || !issueHasLabel(issue, 'plugin-submission')) continue;
+    const repositoryUrl = extractRepositoryUrlFromIssue(issue);
+    if (!repositoryUrl) continue;
+    const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
+    const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
+    const latestActionComment = [...(comments || [])].reverse().find((comment) => String(comment.user?.login || '').startsWith('github-actions'));
+    items.set(repositoryUrl, {
+      issueUrl: issue.html_url,
+      status: issueStatus,
+      updatedAt: latestActionComment?.created_at || issue.updated_at,
+      reason: latestActionComment?.body || '',
+      source: 'github',
+    });
+  }
+  githubSubmissionOverlayCache = { expiresAt: now + 30_000, items };
+  return items;
+}
+
+async function mergeDbSubmissionProgress(dbSubmissions) {
+  try {
+    const overlays = await githubSubmissionOverlayMap();
+    return dbSubmissions
+      .map((item) => {
+        const overlay = overlays.get(String(item.repositoryUrl || '').replace(/\.git$/, ''));
+        if (!overlay) return item;
+        const status = overlay.status === 'removed' ? 'removed' : item.status === 'approved' ? 'approved' : overlay.status;
+        if (status === 'removed') return null;
+        const shouldUseOverlayReason = status !== item.status || status === 'failed' || !item.reason;
+        return {
+          ...item,
+          issueUrl: overlay.issueUrl || item.issueUrl,
+          status,
+          updatedAt: overlay.updatedAt || item.updatedAt,
+          reason: shouldUseOverlayReason ? overlay.reason || item.reason : item.reason,
+          decision: item.decision || (status === 'approved' ? 'approved' : status === 'failed' ? 'failed' : null),
+          syncStatus: status === 'approved' ? 'synced' : status === 'failed' ? 'failed' : item.syncStatus,
+          source: item.source === 'postgres' ? 'postgres+github' : item.source,
+        };
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('GitHub submission overlay unavailable:', error.message);
+    return dbSubmissions;
+  }
+}
+
 async function listSubmissionProgress() {
   const dbSubmissions = await listSubmissionsFromDb();
-  if (dbSubmissions) return dbSubmissions;
+  if (dbSubmissions) return mergeDbSubmissionProgress(dbSubmissions);
   const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
   const localByRepo = localSubmissionMap(registry);
   const items = new Map();
@@ -299,7 +354,7 @@ async function listSubmissionProgress() {
         items.delete(repositoryUrl || issue.html_url);
         continue;
       }
-      const latestActionComment = [...(comments || [])].reverse().find((comment) => comment.user?.login === 'github-actions');
+      const latestActionComment = [...(comments || [])].reverse().find((comment) => String(comment.user?.login || '').startsWith('github-actions'));
       const repoParts = repositoryUrl ? repositoryUrl.split('/').slice(-2) : [];
       items.set(repositoryUrl || issue.html_url, {
         id: local?.id || `issue-${issue.number}`,
