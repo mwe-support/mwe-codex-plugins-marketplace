@@ -291,13 +291,31 @@ export async function markSubmissionManualApproving(repositoryUrl) {
   );
 }
 
+async function markRepositorySubmissionRemovedIfNoActivePlugin(normalizedRepositoryUrl) {
+  if (!normalizedRepositoryUrl) return;
+  await query(
+    `update submissions
+     set status = 'removed', updated_at = now(), review = coalesce(review, '{}'::jsonb) || jsonb_build_object('decision','removed','reviewedAt', now())
+     where normalized_repository_url = $1
+       and not exists (
+         select 1 from plugins
+         where normalized_repository_url = $1 and status = 'active'
+       )`,
+    [normalizedRepositoryUrl]
+  );
+}
+
 export async function markPluginRemoving({ pluginName, repositoryUrl }) {
   if (!(await dbAvailable())) return;
+  const normalized = repositoryUrl ? normalizeRepositoryUrl(repositoryUrl) : '';
+  let normalizedRepositoryUrl = normalized;
   if (pluginName) {
-    await query(`update plugins set status = 'removing', updated_at = now() where name = $1`, [pluginName]);
-    return;
+    const result = await query(`update plugins set status = 'removing', updated_at = now() where name = $1 returning normalized_repository_url`, [pluginName]);
+    normalizedRepositoryUrl = normalizedRepositoryUrl || result.rows[0]?.normalized_repository_url || '';
+  } else {
+    await query(`update plugins set status = 'removing', updated_at = now() where normalized_repository_url = $1`, [normalized]);
   }
-  await query(`update plugins set status = 'removing', updated_at = now() where normalized_repository_url = $1`, [normalizeRepositoryUrl(repositoryUrl)]);
+  await markRepositorySubmissionRemovedIfNoActivePlugin(normalizedRepositoryUrl);
 }
 
 export async function recordAdminAction({ actionType, targetType, targetId, repositoryUrl, status = 'queued', issueUrl, message }) {
