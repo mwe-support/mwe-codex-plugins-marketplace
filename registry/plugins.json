@@ -4,9 +4,61 @@
     "displayName": "MWE Codex Plugin Marketplace",
     "repositoryUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace",
     "marketplacePath": "marketplace.json",
-    "lastUpdated": "2026-06-24T02:08:05.241Z"
+    "lastUpdated": "2026-06-24T02:58:24.549Z"
   },
   "plugins": [
+    {
+      "name": "building-react-native-apps",
+      "displayName": "Building React Native Apps",
+      "description": "Building React Native Apps 是来自 callstackincubator/agent-skills 的 Codex 插件。",
+      "longDescription": "Building React Native Apps 来自 https://github.com/callstackincubator/agent-skills，已通过自动结构校验和静态安全检查。 源仓库说明：Includes React Native skills from callstackincubator/agent-skills and vercel-labs/agent-skills for implementation best practices, performance work, and version upgrades.",
+      "author": "Callstack",
+      "avatarUrl": "https://github.com/callstackincubator.png?size=96",
+      "category": "Coding",
+      "tags": [
+        "Coding",
+        "Auto Reviewed"
+      ],
+      "capabilities": [
+        "Read",
+        "Write"
+      ],
+      "version": "0.1.0",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-24T02:58:24.500Z",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/callstackincubator/agent-skills",
+        "ref": "main",
+        "path": "marketplace/snapshots/building-react-native-apps",
+        "upstreamPath": "plugins/building-react-native-apps",
+        "manifestPath": ".codex-plugin/plugin.json"
+      },
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-24T02:58:24.500Z",
+        "reviewer": "@mwe-support",
+        "method": "auto-rules",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present",
+          "security scan passed"
+        ]
+      },
+      "securityScan": {
+        "status": "passed",
+        "blocked": false,
+        "scannedAt": "2026-06-24T02:58:24.497Z",
+        "findings": []
+      }
+    },
     {
       "name": "context7",
       "displayName": "Context7",
@@ -146,9 +198,85 @@
         ]
       },
       "securityScan": null
+    },
+    {
+      "name": "testing-react-native-apps",
+      "displayName": "Testing React Native Apps",
+      "description": "Testing React Native Apps 是来自 callstackincubator/agent-skills 的 Codex 插件。",
+      "longDescription": "Testing React Native Apps 来自 https://github.com/callstackincubator/agent-skills，已通过自动结构校验和静态安全检查。 源仓库说明：Includes React Native skills from callstack/react-native-testing-library and callstackincubator/agent-device for test writing, device-driven verification, accessibility checks, and exploratory QA.",
+      "author": "Callstack",
+      "avatarUrl": "https://github.com/callstackincubator.png?size=96",
+      "category": "Coding",
+      "tags": [
+        "Coding",
+        "Auto Reviewed"
+      ],
+      "capabilities": [
+        "Read",
+        "Write"
+      ],
+      "version": "0.1.0",
+      "releaseTag": "main",
+      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "syncTimestamp": "2026-06-24T02:58:24.503Z",
+      "installPolicy": "AVAILABLE",
+      "source": {
+        "type": "local-snapshot",
+        "url": "https://github.com/callstackincubator/agent-skills",
+        "ref": "main",
+        "path": "marketplace/snapshots/testing-react-native-apps",
+        "upstreamPath": "plugins/testing-react-native-apps",
+        "manifestPath": ".codex-plugin/plugin.json"
+      },
+      "featured": false,
+      "review": {
+        "status": "approved",
+        "reviewedAt": "2026-06-24T02:58:24.503Z",
+        "reviewer": "@mwe-support",
+        "method": "auto-rules",
+        "rules": [
+          "public GitHub repository cloned",
+          ".codex-plugin/plugin.json discovered",
+          "manifest identity, version, interface and capability fields valid",
+          "README and declared skills/mcp paths present",
+          "security scan passed"
+        ]
+      },
+      "securityScan": {
+        "status": "passed",
+        "blocked": false,
+        "scannedAt": "2026-06-24T02:58:24.501Z",
+        "findings": []
+      }
     }
   ],
   "submissions": [
+    {
+      "id": "callstackincubator-agent-skills-a883551b58",
+      "slug": "callstackincubator-agent-skills",
+      "owner": "callstackincubator",
+      "repo": "agent-skills",
+      "displayName": "Building React Native Apps",
+      "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
+      "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/3",
+      "status": "approved",
+      "submittedAt": "2026-06-24T02:58:23.337Z",
+      "updatedAt": "2026-06-24T02:58:24.509Z",
+      "reviewer": "@mwe-support",
+      "decision": "approved",
+      "reason": "auto-approved 2 plugin(s): building-react-native-apps, testing-react-native-apps",
+      "pluginName": "building-react-native-apps",
+      "verifiedStatus": "verified",
+      "syncStatus": "synced",
+      "securityScan": {
+        "status": "passed",
+        "blocked": false,
+        "scannedAt": "2026-06-24T02:58:24.497Z",
+        "findings": []
+      }
+    },
     {
       "id": "upstash-context7-b88e00bc12",
       "slug": "upstash-context7",

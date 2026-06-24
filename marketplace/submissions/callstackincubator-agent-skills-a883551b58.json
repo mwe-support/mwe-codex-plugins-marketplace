@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "callstackincubator-agent-skills-a883551b58",
+  "slug": "callstackincubator-agent-skills",
+  "owner": "callstackincubator",
+  "repo": "agent-skills",
+  "repositoryUrl": "https://github.com/callstackincubator/agent-skills",
+  "note": "",
+  "submitter": "@mwe-support",
+  "status": "approved",
+  "submittedAt": "2026-06-24T02:58:23.337Z",
+  "updatedAt": "2026-06-24T02:58:24.509Z",
+  "review": {
+    "issueUrl": "https://github.com/mwe-support/mwe-codex-plugins-marketplace/issues/3",
+    "reviewer": "@mwe-support",
+    "decision": "approved",
+    "reason": "auto-approved 2 plugin(s): building-react-native-apps, testing-react-native-apps",
+    "securityScan": {
+      "status": "passed",
+      "findings": []
+    },
+    "reviewedAt": "2026-06-24T02:58:24.509Z"
+  }
+}
