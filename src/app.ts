@@ -213,9 +213,15 @@ function showToast(message: string) {
 async function copyText(value: string, label: string) {
   if (!value) return;
   try {
+    let copied = false;
     if (navigator.clipboard?.writeText && window.isSecureContext) {
-      await navigator.clipboard.writeText(value);
-    } else {
+      await Promise.race([
+        navigator.clipboard.writeText(value),
+        new Promise((_, reject) => window.setTimeout(() => reject(new Error("clipboard timeout")), 800)),
+      ]);
+      copied = true;
+    }
+    if (!copied) {
       const textarea = document.createElement("textarea");
       textarea.value = value;
       textarea.setAttribute("readonly", "");
@@ -224,10 +230,10 @@ async function copyText(value: string, label: string) {
       textarea.style.top = "0";
       document.body.appendChild(textarea);
       textarea.select();
-      const copied = document.execCommand("copy");
+      copied = document.execCommand("copy");
       textarea.remove();
-      if (!copied) throw new Error("execCommand copy failed");
     }
+    if (!copied) throw new Error("copy failed");
     showToast(label);
     addLog("copy", label, "success");
   } catch {
@@ -808,14 +814,31 @@ function homePage() {
 
 function staticPage(kind: "install" | "about" | "reviews") {
   const checks = state.market.checks;
-  const title = kind === "install" ? "如何使用 Marketplace" : kind === "about" ? "检测规范" : "关于我们";
+  const title = kind === "install" ? "如何使用插件市场" : kind === "about" ? "检测规范" : "关于我们";
+  const installBody = `
+    <div class="usage-grid">
+      <article class="usage-card glass-panel">
+        <div class="usage-head">${icon("monitor")}<div><strong>Codex Desktop 用户</strong><p>适合在桌面端浏览市场、安装插件并在对话中直接使用。</p></div></div>
+        <ol class="usage-steps">
+          <li><span>1</span><div><strong>复制 Marketplace 链接</strong><p>复制下面的 GitHub 链接，作为 Codex Desktop 的插件市场来源。</p><code>${marketplaceUrl}</code><button class="secondary-button" data-copy="${marketplaceUrl}" data-copy-label="Marketplace 链接已复制" type="button">${icon("copy", "复制 Marketplace 链接")}</button></div></li>
+          <li><span>2</span><div><strong>在 Codex Desktop 添加插件市场</strong><p>打开 Codex Desktop 的插件或 Marketplace 管理入口，粘贴链接并添加。添加后，市场里的插件会同步显示。</p></div></li>
+          <li><span>3</span><div><strong>安装需要的插件</strong><p>回到插件市场，按名称、分类或能力搜索插件，查看状态后点击安装。</p></div></li>
+          <li><span>4</span><div><strong>在对话中使用插件</strong><p>安装完成后，新开或继续 Codex 会话，按插件说明调用它提供的能力。</p></div></li>
+        </ol>
+      </article>
+      <article class="usage-card glass-panel">
+        <div class="usage-head">${icon("terminal")}<div><strong>Codex CLI 用户</strong><p>适合在终端中添加市场、复制插件安装命令并在 CLI 会话中使用。</p></div></div>
+        <ol class="usage-steps">
+          <li><span>1</span><div><strong>添加 Marketplace</strong><p>在终端运行下面的命令，将 MWE 插件市场加入本机 Codex CLI。</p><code>${cliCommand(marketplaceUrl)}</code><button class="secondary-button" data-copy="${cliCommand(marketplaceUrl)}" data-copy-label="CLI Marketplace 命令已复制" type="button">${icon("copy", "复制 Marketplace 命令")}</button></div></li>
+          <li><span>2</span><div><strong>选择并安装插件</strong><p>在市场首页找到插件，点击插件卡片上的“复制 CLI 命令”，到终端运行对应命令。</p></div></li>
+          <li><span>3</span><div><strong>确认插件可用</strong><p>安装后重新进入 Codex CLI 会话，或按 CLI 提示刷新插件列表。</p></div></li>
+          <li><span>4</span><div><strong>按插件说明使用能力</strong><p>进入插件详情页查看用途、能力标签和风险提示，再在 CLI 对话中请求 Codex 使用对应插件。</p></div></li>
+        </ol>
+      </article>
+    </div>`;
   const body =
     kind === "install"
-      ? `
-        <div class="command-grid">
-          <div class="command-card">${icon("monitor")}<strong>Codex Desktop</strong><code>${marketplaceUrl}</code><button class="secondary-button" data-copy="${marketplaceUrl}" data-copy-label="Marketplace 链接已复制" type="button">${icon("copy", "复制链接")}</button></div>
-          <div class="command-card">${icon("terminal")}<strong>Codex CLI</strong><code>${cliCommand(marketplaceUrl)}</code><button class="secondary-button" data-copy="${cliCommand(marketplaceUrl)}" data-copy-label="CLI 命令已复制" type="button">${icon("copy", "复制命令")}</button></div>
-        </div>`
+      ? installBody
       : kind === "about"
         ? `
           <div class="rule-grid">
@@ -829,7 +852,7 @@ function staticPage(kind: "install" | "about" | "reviews") {
       <section class="content-card glass-panel">
         <a href="/" data-link class="secondary-button compact">${icon("arrow-left", "返回市场")}</a>
         <h1>${safe(title)}</h1>
-        <p>${kind === "reviews" ? "这里汇总最近的插件检测与同步状态。" : "本页面沿用 Perspective 玻璃态系统，保持和首页一致的视觉语言。"}</p>
+        <p>${kind === "install" ? "根据你使用的是 Codex Desktop 还是 Codex CLI，选择对应流程复制链接、添加市场、安装插件并开始使用。" : kind === "reviews" ? "这里汇总最近的插件检测与同步状态。" : "了解插件进入市场前会经过哪些检测，以及哪些情况需要人工复核。"}</p>
         ${body}
       </section>
     </main>

@@ -188,3 +188,23 @@ test('admin password errors are visible and success deletes immediately', async 
   await expect(page.getByText('插件已删除')).toBeVisible();
   await expect(page).toHaveURL('/');
 });
+
+test('install page explains Desktop and CLI usage with working copy actions', async ({ page }) => {
+  await page.goto('/install');
+  await expect(page.getByRole('heading', { name: '如何使用插件市场' })).toBeVisible();
+  await expect(page.getByText('Codex Desktop 用户')).toBeVisible();
+  await expect(page.getByRole('button', { name: '复制 Marketplace 链接' })).toBeVisible();
+  await expect(page.getByText('在 Codex Desktop 添加插件市场')).toBeVisible();
+  await expect(page.getByText('安装需要的插件')).toBeVisible();
+  await expect(page.getByText('Codex CLI 用户')).toBeVisible();
+  await expect(page.getByRole('button', { name: '复制 Marketplace 命令' })).toBeVisible();
+  await expect(page.getByText('复制 CLI 命令')).toBeVisible();
+  await expect(page.getByText('central GitHub registry')).toHaveCount(0);
+  await expect(page.getByText('GitHub Action')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /复制 Marketplace 链接/ }).click();
+  await expect(page.getByText(/Marketplace 链接已复制|复制失败，请手动选择文本/)).toBeVisible();
+  await page.getByRole('button', { name: /复制 Marketplace 命令/ }).click();
+  await expect(page.getByText(/CLI Marketplace 命令已复制|复制失败，请手动选择文本/)).toBeVisible();
+});
+
