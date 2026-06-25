@@ -1,31 +1,25 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { timingSafeEqual } from 'node:crypto';
-import {
-  createSubmissionState,
-  dbAvailable,
-  findPluginByRepositoryFromDb,
-  findSubmissionByRepositoryFromDb,
-  listSubmissionsFromDb,
-  markPluginRemoving,
-  markSubmissionManualApproving,
-  markSubmissionRemoved,
-  readRegistryFromDb,
-  recordAdminAction,
-} from './db.mjs';
+import { dbAvailable, deletePluginFromDb, findPluginByRepositoryFromDb, findPluginsByRepositoryFromDb, listSubmissionsFromDb, readRegistryFromDb, upsertPlugin, upsertSubmission } from './db.mjs';
 
+const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.PORT || 80);
 const ROOT = process.cwd();
-const TARGET_REPOSITORY = process.env.MARKETPLACE_GITHUB_REPOSITORY || 'mwe-support/mwe-codex-plugins-marketplace';
-const API_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
-const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 const MAX_BODY_BYTES = 64 * 1024;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
-const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 5);
+const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 8);
+const CLONE_TIMEOUT_MS = Number(process.env.PLUGIN_CLONE_TIMEOUT_MS || 45_000);
+const MAX_WALK_FILES = Number(process.env.PLUGIN_WALK_FILE_LIMIT || 5000);
+const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 
-const allowedFiles = new Set(['index.html', '404.html', 'app.js', 'styles.css', 'marketplace.json']);
-const allowedDirs = new Set(['assets', 'registry', 'marketplace', '.agents', 'about', 'install', 'submit', 'perspective', 'reviews']);
+const allowedFiles = new Set(['index.html', '404.html', 'app.js', 'styles.css']);
+const allowedDirs = new Set(['assets']);
+const appShellRoutes = new Set(['plugins', 'share', 'reviews', 'submit', 'install', 'about', 'perspective']);
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8'],
@@ -40,6 +34,7 @@ const mimeTypes = new Map([
 ]);
 
 const buckets = new Map();
+const memory = { plugins: new Map(), checks: new Map() };
 
 function sendJson(response, status, payload) {
   response.writeHead(status, {
@@ -49,29 +44,28 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function responseStatusForError(error) {
-  if (error instanceof SyntaxError) return 400;
-  if (error.status) return error.status;
-  if (/请输入|没有找到|只接受|需要|不合法|格式不正确|未知/.test(error.message || '')) return 400;
-  return 500;
-}
-
-function httpError(message, status) {
+function httpError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
   return error;
 }
 
+
 function verifyAdminPassword(value) {
   if (!ADMIN_PASSWORD) {
-    throw httpError('服务端还没有配置 MARKETPLACE_ADMIN_PASSWORD 或 ADMIN_PASSWORD，暂时无法提交删除请求。', 503);
+    throw httpError('服务端还没有配置 MARKETPLACE_ADMIN_PASSWORD 或 ADMIN_PASSWORD，暂时无法删除插件。', 503);
   }
   const expected = Buffer.from(ADMIN_PASSWORD);
   const provided = Buffer.from(String(value || ''));
   const matches = provided.length === expected.length && timingSafeEqual(provided, expected);
-  if (!matches) {
-    throw httpError('管理员密码不正确，请确认后再提交删除请求。', 401);
-  }
+  if (!matches) throw httpError('管理员密码不正确，请确认后再试。', 401);
+}
+
+function responseStatusForError(error) {
+  if (error instanceof SyntaxError) return 400;
+  if (error.status) return error.status;
+  if (/请输入|没有找到|只接受|需要|不合法|格式不正确|未知|不是|无法确认/.test(error.message || '')) return 400;
+  return 500;
 }
 
 function clientIp(request) {
@@ -93,30 +87,6 @@ function checkRateLimit(request) {
   return true;
 }
 
-function parseGithubRepositoryUrl(value) {
-  if (!String(value || '').trim()) throw new Error('请输入 GitHub 仓库 URL。');
-  let url;
-  try {
-    url = new URL(String(value).trim());
-  } catch {
-    throw new Error('URL 格式不正确，请使用 https://github.com/owner/repo。');
-  }
-  if (url.protocol !== 'https:' || url.hostname !== 'github.com') {
-    throw new Error('目前只接受 https://github.com 上的公开仓库。');
-  }
-  const [owner, rawRepo] = url.pathname.split('/').filter(Boolean);
-  const repo = rawRepo?.replace(/\.git$/, '');
-  if (!owner || !repo) throw new Error('链接需要包含 owner 和 repo。');
-  if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) {
-    throw new Error('GitHub owner 或 repo 名称不合法。');
-  }
-  return {
-    owner,
-    repo,
-    normalizedUrl: `https://github.com/${owner}/${repo}`,
-  };
-}
-
 function readRequestBody(request) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -124,7 +94,7 @@ function readRequestBody(request) {
     request.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new Error('提交内容过大，请缩短补充说明。'));
+        reject(httpError('提交内容过大，请缩短后再试。', 413));
         request.destroy();
         return;
       }
@@ -135,70 +105,26 @@ function readRequestBody(request) {
   });
 }
 
-async function githubRequest(apiPath, { method = 'GET', body, allowNotFound = false } = {}) {
-  const response = await fetch(`https://api.github.com${apiPath}`, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${API_TOKEN}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (response.status === 404 && allowNotFound) return null;
-  if (!response.ok) {
-    const reason = data?.message || response.statusText;
-    const error = new Error(`GitHub API 请求失败：${reason}`);
-    error.status = response.status;
-    throw error;
-  }
-  return data;
-}
-
-async function ensureLabel(name, color, description) {
-  const labelPath = `/repos/${TARGET_REPOSITORY}/labels/${encodeURIComponent(name)}`;
-  const existing = await githubRequest(labelPath, { allowNotFound: true });
-  if (existing) return;
-  await githubRequest(`/repos/${TARGET_REPOSITORY}/labels`, {
-    method: 'POST',
-    body: { name, color, description },
-  });
-}
-
-function issueMatchesSubmission(issue, normalizedUrl) {
-  if (issue.pull_request) return false;
-  return String(issue.title || '').includes(normalizedUrl) || String(issue.body || '').includes(normalizedUrl);
-}
-
-async function findExistingIssue(normalizedUrl) {
-  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
-  return Array.isArray(issues) ? issues.find((issue) => issueMatchesSubmission(issue, normalizedUrl)) : null;
-}
-
-async function findExistingSubmissionIssue(normalizedUrl) {
-  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
-  return Array.isArray(issues)
-    ? issues.find((issue) => !issue.pull_request && issueHasLabel(issue, 'plugin-submission') && issueMatchesSubmission(issue, normalizedUrl))
-    : null;
-}
-
-function truncateNote(value) {
-  const note = String(value || '').trim();
-  if (!note) return '无';
-  return note.length > 4000 ? `${note.slice(0, 4000)}\n\n[说明已截断]` : note;
-}
-
-async function readLocalJson(relativePath, fallback) {
+function parseGithubRepositoryUrl(value) {
+  if (!String(value || '').trim()) throw httpError('请输入 GitHub 仓库 URL。');
+  let url;
   try {
-    const content = await fs.readFile(path.join(ROOT, relativePath), 'utf8');
-    return JSON.parse(content);
+    url = new URL(String(value).trim());
   } catch {
-    return fallback;
+    throw httpError('URL 格式不正确，请使用 https://github.com/owner/repo。');
   }
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com') {
+    throw httpError('目前只接受 https://github.com 上的公开仓库。');
+  }
+  const [owner, rawRepo] = url.pathname.split('/').filter(Boolean);
+  const repo = rawRepo?.replace(/\.git$/, '');
+  if (!owner || !repo) throw httpError('链接需要包含 owner 和 repo。');
+  if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) {
+    throw httpError('GitHub owner 或 repo 名称不合法。');
+  }
+  return { owner, repo, normalizedUrl: `https://github.com/${owner}/${repo}` };
 }
+
 function normalizeRepositoryUrl(value) {
   try {
     return parseGithubRepositoryUrl(value).normalizedUrl;
@@ -207,510 +133,237 @@ function normalizeRepositoryUrl(value) {
   }
 }
 
-async function findRegistryPluginByRepository(repositoryUrl) {
-  const dbPlugin = await findPluginByRepositoryFromDb(repositoryUrl);
-  if (dbPlugin) return dbPlugin;
-  const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
-  const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
-  return (registry.plugins || []).find((plugin) => normalizeRepositoryUrl(plugin.repositoryUrl) === normalizedUrl) || null;
+function slugify(value) {
+  return String(value || 'plugin').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'plugin';
 }
 
-async function findRegistrySubmissionByRepository(repositoryUrl) {
-  const dbSubmission = await findSubmissionByRepositoryFromDb(repositoryUrl);
-  if (dbSubmission) return dbSubmission;
-  const normalizedUrl = normalizeRepositoryUrl(repositoryUrl);
-  const registry = await readLocalJson('registry/plugins.json', { plugins: [], submissions: [] });
-  return (registry.submissions || []).find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && ['reviewing', 'approved'].includes(item.status)) || null;
+function submissionIdFor(normalizedUrl) {
+  const { owner, repo } = parseGithubRepositoryUrl(normalizedUrl);
+  return `${slugify(owner)}-${slugify(repo)}-${Buffer.from(normalizedUrl).toString('hex').slice(0, 10)}`;
 }
 
-function issueLabelNames(issue) {
-  return (issue.labels || []).map((label) => label?.name).filter(Boolean);
+function authorName(value, fallback) {
+  if (typeof value === 'string') return value || fallback;
+  if (value && typeof value === 'object') return value.name || value.login || fallback;
+  return fallback;
 }
 
-function issueHasLabel(issue, labelName) {
-  return issueLabelNames(issue).includes(labelName);
+function stringList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return [];
 }
 
-function removalIssuePluginName(issue) {
-  const text = `${issue.title || ''}\n${issue.body || ''}`;
-  const bodyMatch = text.match(/###\s*删除插件\s*\n([^\n]+)/);
-  const titleMatch = text.match(/删除插件：([^\s(]+)/);
-  return String(bodyMatch?.[1] || titleMatch?.[1] || '').trim();
-}
-
-function issueMatchesPluginRemoval(issue, normalizedUrl, pluginName) {
-  if (issue.pull_request || !issueHasLabel(issue, 'plugin-removal')) return false;
-  const issuePluginName = removalIssuePluginName(issue);
-  if (pluginName && issuePluginName) return issuePluginName === pluginName;
-  return issueMatchesSubmission(issue, normalizedUrl);
-}
-
-async function findExistingRemovalIssue({ normalizedUrl, pluginName }) {
-  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=open&per_page=100`);
-  return Array.isArray(issues) ? issues.find((issue) => issueMatchesPluginRemoval(issue, normalizedUrl, pluginName)) : null;
-}
-
-function extractRepositoryUrlFromIssue(issue) {
-  const text = `${issue.title || ''}\n${issue.body || ''}`;
-  const match = text.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/);
-  return match ? match[0].replace(/\.git$/, '') : '';
-}
-
-function reviewStatusFromIssue(issue, comments = []) {
-  const commentText = comments.map((comment) => comment.body || '').join('\n');
-  if (/管理员已删除上传请求|上传请求已由管理员删除/.test(commentText)) return 'removed';
-  if (/自动审核通过并已同步|管理员手动通过上传请求并已同步/.test(commentText)) return 'approved';
-  if (/自动审核未通过|安全扫描未通过/.test(commentText)) return 'failed';
-  if (issue.state === 'closed') return 'closed';
-  return 'reviewing';
-}
-
-function localSubmissionMap(registry) {
-  const map = new Map();
-  for (const item of registry.submissions || []) {
-    if (item.repositoryUrl) map.set(item.repositoryUrl.replace(/\.git$/, ''), item);
-  }
-  return map;
-}
-
-let githubSubmissionOverlayCache = { expiresAt: 0, items: new Map() };
-
-async function githubSubmissionOverlayMap() {
-  if (!API_TOKEN) return new Map();
-  const now = Date.now();
-  if (githubSubmissionOverlayCache.expiresAt > now) return githubSubmissionOverlayCache.items;
-  const items = new Map();
-  const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
-  for (const issue of Array.isArray(issues) ? issues : []) {
-    if (issue.pull_request || !issueHasLabel(issue, 'plugin-submission')) continue;
-    const repositoryUrl = extractRepositoryUrlFromIssue(issue);
-    if (!repositoryUrl) continue;
-    const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
-    const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
-    const latestActionComment = [...(comments || [])].reverse().find((comment) => String(comment.user?.login || '').startsWith('github-actions'));
-    items.set(repositoryUrl, {
-      issueUrl: issue.html_url,
-      status: issueStatus,
-      updatedAt: latestActionComment?.created_at || issue.updated_at,
-      reason: latestActionComment?.body || '',
-      source: 'github',
-    });
-  }
-  githubSubmissionOverlayCache = { expiresAt: now + 30_000, items };
-  return items;
-}
-
-async function mergeDbSubmissionProgress(dbSubmissions) {
+async function existsSafe(filePath) {
   try {
-    const overlays = await githubSubmissionOverlayMap();
-    return dbSubmissions
-      .map((item) => {
-        const overlay = overlays.get(String(item.repositoryUrl || '').replace(/\.git$/, ''));
-        if (!overlay) return item;
-        const status = overlay.status === 'removed' ? 'removed' : item.status === 'approved' ? 'approved' : overlay.status;
-        if (status === 'removed') return null;
-        const shouldUseOverlayReason = status !== item.status || status === 'failed' || !item.reason;
-        return {
-          ...item,
-          issueUrl: overlay.issueUrl || item.issueUrl,
-          status,
-          updatedAt: overlay.updatedAt || item.updatedAt,
-          reason: shouldUseOverlayReason ? overlay.reason || item.reason : item.reason,
-          decision: item.decision || (status === 'approved' ? 'approved' : status === 'failed' ? 'failed' : null),
-          syncStatus: status === 'approved' ? 'synced' : status === 'failed' ? 'failed' : item.syncStatus,
-          source: item.source === 'postgres' ? 'postgres+github' : item.source,
-        };
-      })
-      .filter(Boolean);
-  } catch (error) {
-    console.warn('GitHub submission overlay unavailable:', error.message);
-    return dbSubmissions;
+    const stat = await fs.lstat(filePath);
+    return !stat.isSymbolicLink();
+  } catch {
+    return false;
   }
 }
 
-async function listSubmissionProgress() {
-  const dbSubmissions = await listSubmissionsFromDb();
-  if (dbSubmissions) return mergeDbSubmissionProgress(dbSubmissions);
-  const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
-  const localByRepo = localSubmissionMap(registry);
-  const items = new Map();
+async function walkRepository(root) {
+  const files = [];
+  const skip = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'coverage', 'target', 'vendor']);
+  async function walk(dir) {
+    if (files.length >= MAX_WALK_FILES) return;
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (files.length >= MAX_WALK_FILES) return;
+      if (skip.has(entry.name)) continue;
+      const absolute = path.join(dir, entry.name);
+      const relative = path.relative(root, absolute).replaceAll(path.sep, '/');
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) await walk(absolute);
+      else if (entry.isFile()) files.push(relative);
+    }
+  }
+  await walk(root);
+  return files;
+}
 
-  for (const item of registry.submissions || []) {
-    items.set(item.repositoryUrl.replace(/\.git$/, ''), { ...item, source: 'registry' });
+function manifestPaths(files) {
+  const strict = files.filter((file) => file.endsWith('/.codex-plugin/plugin.json') || file === '.codex-plugin/plugin.json');
+  if (strict.length) return strict;
+  return files.filter((file) => file.endsWith('plugin.json') && !file.includes('node_modules/')).slice(0, 5);
+}
+
+function inferredPluginPaths(files) {
+  const skillFiles = files.filter((file) => /(^|\/)skills\/[^/]+\/SKILL\.md$/.test(file));
+  const mcpFiles = files.filter((file) => file.endsWith('.mcp.json') || file.endsWith('/mcp/server.mjs'));
+  return { skillFiles, mcpFiles };
+}
+
+async function readJsonFile(filePath) {
+  const text = await fs.readFile(filePath, 'utf8');
+  if (text.length > 512 * 1024) throw httpError('manifest 文件过大，无法作为 Codex 插件读取。');
+  return JSON.parse(text);
+}
+
+function securityWarnings(files, manifest, manifestRelativePath) {
+  const findings = [];
+  const manifestText = JSON.stringify(manifest).toLowerCase();
+  if (manifestText.includes('postinstall') || manifestText.includes('preinstall')) {
+    findings.push({ severity: 'medium', path: manifestRelativePath, description: 'manifest 中出现安装脚本相关字段，请安装前复核。' });
+  }
+  const interesting = files.filter((file) => /(^|\/)(package\.json|\.mcp\.json|server\.(mjs|js|ts)|SKILL\.md)$/.test(file)).slice(0, 20);
+  for (const file of interesting) {
+    if (/\.env($|\.)|secret|credential/i.test(file)) {
+      findings.push({ severity: 'medium', path: file, description: '仓库包含疑似敏感配置文件名，请安装前复核。' });
+    }
+  }
+  return findings;
+}
+
+async function cloneRepository(normalizedUrl) {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mwe-codex-plugin-'));
+  const repoPath = path.join(tempRoot, 'repo');
+  try {
+    await execFileAsync('git', ['clone', '--depth=1', '--filter=blob:limit=1m', normalizedUrl, repoPath], {
+      timeout: CLONE_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    return { tempRoot, repoPath };
+  } catch (error) {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    const reason = /timed out/i.test(error.message || '') ? '读取仓库超时，请稍后重试。' : '无法读取这个公开仓库，请确认链接可访问。';
+    throw httpError(reason, 422);
+  }
+}
+
+async function detectPlugins(repositoryUrl) {
+  const { owner, repo, normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
+  const existingPlugins = (await findPluginsByRepositoryFromDb(normalizedUrl))?.filter((plugin) => plugin.source?.type === 'shared-repository');
+  if (existingPlugins?.length) {
+    return { normalizedUrl, owner, repo, duplicate: true, plugins: existingPlugins, warnings: [] };
+  }
+  const existing = await findPluginByRepositoryFromDb(normalizedUrl);
+  if (existing?.source?.type === 'shared-repository') {
+    return { normalizedUrl, owner, repo, duplicate: true, plugins: [existing], warnings: [] };
   }
 
-  if (API_TOKEN) {
-    const issues = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues?state=all&per_page=100`);
-    for (const issue of Array.isArray(issues) ? issues : []) {
-      if (issue.pull_request) continue;
-      const repositoryUrl = extractRepositoryUrlFromIssue(issue);
-      const labelNames = issueLabelNames(issue);
-      if (!repositoryUrl && !labelNames.includes('plugin-submission')) continue;
-      const comments = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${issue.number}/comments?per_page=50`);
-      const local = repositoryUrl ? localByRepo.get(repositoryUrl) : null;
-      const issueStatus = reviewStatusFromIssue(issue, Array.isArray(comments) ? comments : []);
-      const status = issueStatus === 'removed' ? 'removed' : local?.status === 'approved' ? 'approved' : issueStatus;
-      if (status === 'removed') {
-        items.delete(repositoryUrl || issue.html_url);
-        continue;
+  const { tempRoot, repoPath } = await cloneRepository(normalizedUrl);
+  try {
+    const files = await walkRepository(repoPath);
+    const manifests = manifestPaths(files);
+    const inferred = inferredPluginPaths(files);
+    if (!manifests.length && !inferred.skillFiles.length && !inferred.mcpFiles.length) {
+      throw httpError('没有找到 Codex 插件入口。请确认仓库包含 .codex-plugin/plugin.json、skills/*/SKILL.md 或 MCP 配置。', 422);
+    }
+
+    const plugins = [];
+    const now = new Date().toISOString();
+    if (manifests.length) {
+      for (const manifestRelativePath of manifests.slice(0, 5)) {
+        const manifestPath = path.join(repoPath, manifestRelativePath);
+        let manifest;
+        try {
+          manifest = await readJsonFile(manifestPath);
+        } catch {
+          throw httpError(`${manifestRelativePath} 不是可读取的 JSON manifest。`, 422);
+        }
+        const manifestDir = path.dirname(manifestPath);
+        const pluginRoot = path.basename(manifestDir) === '.codex-plugin' ? path.dirname(manifestDir) : manifestDir;
+        const iface = manifest.interface || {};
+        const pluginName = slugify(manifest.name || repo);
+        const missing = [];
+        if (manifest.skills && !(await existsSafe(path.resolve(pluginRoot, manifest.skills)))) missing.push('skills 路径不存在');
+        if (manifest.mcpServers && !(await existsSafe(path.resolve(pluginRoot, manifest.mcpServers)))) missing.push('mcpServers 路径不存在');
+        const findings = securityWarnings(files, manifest, manifestRelativePath);
+        for (const item of missing) findings.push({ severity: 'low', path: manifestRelativePath, description: item });
+        const tags = [...new Set([...stringList(manifest.keywords), iface.category, ...(missing.length ? ['需要复核'] : ['结构检测通过'])].filter(Boolean))];
+        const capabilities = stringList(iface.capabilities).length ? stringList(iface.capabilities) : stringList(manifest.capabilities).length ? stringList(manifest.capabilities) : inferred.skillFiles.length ? ['Skill'] : inferred.mcpFiles.length ? ['MCP'] : ['Codex Plugin'];
+        plugins.push({
+          name: pluginName,
+          displayName: iface.displayName || manifest.displayName || manifest.name || repo,
+          description: iface.shortDescription || manifest.description || `${repo} Codex 插件仓库`,
+          longDescription: iface.longDescription || manifest.longDescription || manifest.description || `${repo} Codex 插件仓库`,
+          author: authorName(manifest.author, iface.developerName || owner),
+          avatarUrl: `https://github.com/${owner}.png?size=96`,
+          category: iface.category || manifest.category || (inferred.mcpFiles.length ? 'MCP' : 'Codex Plugin'),
+          tags,
+          capabilities,
+          version: String(manifest.version || '0.1.0'),
+          releaseTag: 'main',
+          repositoryUrl: normalizedUrl,
+          verifiedStatus: 'verified',
+          syncStatus: 'synced',
+          syncTimestamp: now,
+          installPolicy: 'AVAILABLE',
+          featured: false,
+          source: { type: 'shared-repository', url: normalizedUrl, manifestPath: manifestRelativePath },
+          review: {
+            status: 'approved',
+            reviewedAt: now,
+            reviewer: 'server-detector',
+            method: 'relaxed-web-detection',
+            rules: ['public GitHub repository cloned', 'Codex plugin entry discovered', 'non-critical issues recorded as warnings'],
+          },
+          securityScan: { status: findings.length ? 'warnings' : 'passed', blocked: false, findings, scannedAt: now },
+        });
       }
-      const latestActionComment = [...(comments || [])].reverse().find((comment) => String(comment.user?.login || '').startsWith('github-actions'));
-      const repoParts = repositoryUrl ? repositoryUrl.split('/').slice(-2) : [];
-      items.set(repositoryUrl || issue.html_url, {
-        id: local?.id || `issue-${issue.number}`,
-        slug: local?.slug || repoParts.join('-') || `issue-${issue.number}`,
-        owner: local?.owner || repoParts[0] || 'unknown',
-        repo: local?.repo || repoParts[1] || issue.title,
-        displayName: local?.displayName || repoParts[1] || issue.title,
-        repositoryUrl: repositoryUrl || local?.repositoryUrl || '',
-        issueUrl: issue.html_url,
-        status,
-        submittedAt: local?.submittedAt || issue.created_at,
-        updatedAt: local?.updatedAt || issue.updated_at,
-        decision: local?.decision || (status === 'approved' ? 'approved' : status === 'failed' ? 'failed' : null),
-        reason: local?.reason || latestActionComment?.body || '',
-        pluginName: local?.pluginName || null,
-        verifiedStatus: local?.verifiedStatus || (status === 'approved' ? 'verified' : 'reviewing'),
-        syncStatus: local?.syncStatus || (status === 'approved' ? 'synced' : status === 'failed' ? 'failed' : 'pending'),
-        securityScan: local?.securityScan || null,
-        source: local ? 'registry+github' : 'github',
+    } else {
+      const findings = [{ severity: 'low', path: inferred.skillFiles[0] || inferred.mcpFiles[0], description: '未发现 .codex-plugin/plugin.json，已根据明显的 skill/MCP 结构推断为 Codex 插件。' }];
+      plugins.push({
+        name: slugify(repo),
+        displayName: repo,
+        description: `${repo} 包含 Codex skill 或 MCP 插件结构。`,
+        longDescription: `${repo} 包含 Codex skill 或 MCP 插件结构，但没有提供 .codex-plugin/plugin.json。安装前建议查看仓库说明。`,
+        author: owner,
+        avatarUrl: `https://github.com/${owner}.png?size=96`,
+        category: inferred.mcpFiles.length ? 'MCP' : 'Codex Skill',
+        tags: ['结构推断', '需要复核'],
+        capabilities: inferred.skillFiles.length ? ['Skill'] : ['MCP'],
+        version: '0.1.0',
+        releaseTag: 'main',
+        repositoryUrl: normalizedUrl,
+        verifiedStatus: 'verified',
+        syncStatus: 'synced',
+        syncTimestamp: now,
+        installPolicy: 'AVAILABLE',
+        featured: false,
+        source: { type: 'shared-repository', url: normalizedUrl, inferredFrom: inferred.skillFiles[0] || inferred.mcpFiles[0] },
+        review: { status: 'approved', reviewedAt: now, reviewer: 'server-detector', method: 'relaxed-web-detection' },
+        securityScan: { status: 'warnings', blocked: false, findings, scannedAt: now },
       });
     }
+    return { normalizedUrl, owner, repo, duplicate: false, plugins, warnings: plugins.flatMap((plugin) => plugin.securityScan.findings || []) };
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
   }
-
-  return [...items.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-async function createSubmissionIssue({ repositoryUrl, note }) {
-  if (!API_TOKEN) {
-    throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建审核 issue。');
-  }
-
-  const { normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
-  const listedPlugin = await findRegistryPluginByRepository(normalizedUrl);
-  if (listedPlugin && listedPlugin.installPolicy !== 'REVIEW_ONLY') {
-    return {
-      duplicate: true,
-      duplicateType: 'listed',
-      pluginName: listedPlugin.name,
-      issueNumber: '',
-      issueUrl: '',
-      repositoryUrl: normalizedUrl,
-    };
-  }
-  const pendingSubmission = await findRegistrySubmissionByRepository(normalizedUrl);
-  if (pendingSubmission) {
-    return {
-      duplicate: true,
-      duplicateType: 'submission',
-      issueNumber: pendingSubmission.issueUrl?.split('/').pop() || '',
-      issueUrl: pendingSubmission.issueUrl || '',
-      repositoryUrl: normalizedUrl,
-    };
-  }
-  const existing = await findExistingIssue(normalizedUrl);
-  if (existing) {
-    return {
-      duplicate: true,
-      duplicateType: 'issue',
-      issueNumber: existing.number,
-      issueUrl: existing.html_url,
-      repositoryUrl: normalizedUrl,
-    };
-  }
-
-  const labels = ['plugin-submission', 'review-needed'];
-  try {
-    await ensureLabel('plugin-submission', '2563eb', 'Codex marketplace plugin submission');
-    await ensureLabel('review-needed', 'f59e0b', 'Needs automated or maintainer review');
-  } catch (error) {
-    console.warn(`Label setup skipped: ${error.message}`);
-  }
-
-  const body = `### GitHub 仓库\n${normalizedUrl}\n\n### 补充说明\n${truncateNote(note)}\n\n### 提交来源\n网页表单自动提交。用户无需在 GitHub 上重复创建 issue。\n\n### 自动检查\n- [ ] Release/tag 可访问\n- [ ] .codex-plugin/plugin.json 存在\n- [ ] manifest 字段完整\n`;
-
-  let issue;
-  try {
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: {
-        title: `收录插件：${normalizedUrl}`,
-        body,
-        labels,
-      },
-    });
-  } catch (error) {
-    if (error.status !== 422) throw error;
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: {
-        title: `收录插件：${normalizedUrl}`,
-        body,
-      },
-    });
-  }
-
-  await createSubmissionState({ repositoryUrl: normalizedUrl, issueUrl: issue.html_url, note });
-
-  return {
-    duplicate: false,
-    issueNumber: issue.number,
-    issueUrl: issue.html_url,
+async function recordCheck({ normalizedUrl, owner, repo, status, reason = '', pluginName = null, securityScan = null, stage = null }) {
+  const now = new Date().toISOString();
+  const id = submissionIdFor(normalizedUrl);
+  const check = {
+    id,
+    slug: `${slugify(owner)}-${slugify(repo)}`,
+    owner,
+    repo,
     repositoryUrl: normalizedUrl,
+    status,
+    submittedAt: now,
+    updatedAt: now,
+    reason,
+    pluginName,
+    verifiedStatus: status === 'approved' ? 'verified' : 'unverified',
+    syncStatus: status === 'approved' ? 'synced' : 'failed',
+    securityScan,
+    stage: stage || (status === 'approved' ? 'completed' : status === 'failed' ? 'validating' : 'received'),
+    review: { decision: status, reason, reviewedAt: now, securityScan, stage: stage || (status === 'approved' ? 'completed' : status === 'failed' ? 'validating' : 'received') },
+    source: 'web-detector',
   };
+  memory.checks.set(id, check);
+  await upsertSubmission(check);
+  return check;
 }
 
-function cleanGithubLogin(value) {
-  const login = String(value || '').trim().replace(/^@/, '');
-  if (!/^[A-Za-z0-9-]{1,39}$/.test(login)) throw new Error('请输入有效的 GitHub 登录名。');
-  return login;
-}
-
-async function findPluginForRemoval({ pluginName, repositoryUrl }) {
-  const registry = await readLocalJson('registry/plugins.json', { plugins: [] });
-  const plugins = registry.plugins || [];
-  const normalizedUrl = repositoryUrl ? parseGithubRepositoryUrl(repositoryUrl).normalizedUrl : '';
-  if (pluginName) {
-    const plugin = plugins.find((item) => item.name === pluginName && item.installPolicy !== 'REVIEW_ONLY');
-    if (!plugin) throw new Error('没有找到这个已收录插件。');
-    if (normalizedUrl && normalizeRepositoryUrl(plugin.repositoryUrl) !== normalizedUrl) {
-      throw new Error('插件名和 GitHub 仓库不匹配，请刷新页面后重试。');
-    }
-    return plugin;
-  }
-  if (normalizedUrl) {
-    const plugin = plugins.find((item) => normalizeRepositoryUrl(item.repositoryUrl) === normalizedUrl && item.installPolicy !== 'REVIEW_ONLY');
-    if (plugin) return plugin;
-    throw new Error('没有找到这个 GitHub 仓库对应的已收录插件。');
-  }
-  throw new Error('没有找到这个已收录插件。');
-}
-
-async function createRemovalIssue({ pluginName, repositoryUrl, adminPassword, reason }) {
-  verifyAdminPassword(adminPassword);
-  if (!API_TOKEN) {
-    throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建删除请求。');
-  }
-  const plugin = await findPluginForRemoval({ pluginName, repositoryUrl });
-  const { normalizedUrl } = parseGithubRepositoryUrl(plugin.repositoryUrl);
-  const existing = await findExistingRemovalIssue({ normalizedUrl, pluginName: plugin.name });
-  if (existing) {
-    await markPluginRemoving({ pluginName: plugin.name, repositoryUrl: normalizedUrl });
-    await recordAdminAction({
-      actionType: 'plugin-removal',
-      targetType: 'plugin',
-      targetId: plugin.name,
-      repositoryUrl: normalizedUrl,
-      status: 'queued',
-      issueUrl: existing.html_url,
-      message: 'existing plugin removal request reused',
-    });
-    return {
-      duplicate: true,
-      issueNumber: existing.number,
-      issueUrl: existing.html_url,
-      repositoryUrl: normalizedUrl,
-      pluginName: plugin.name,
-    };
-  }
-
-  const labels = ['plugin-removal', 'removal-needed'];
-  try {
-    await ensureLabel('plugin-removal', 'be123c', 'Codex marketplace plugin removal request');
-    await ensureLabel('removal-needed', 'f97316', 'Marketplace admin approved removal request');
-  } catch (error) {
-    console.warn(`Label setup skipped: ${error.message}`);
-  }
-
-  const body = `### 删除插件\n${plugin.name}\n\n### 插件仓库\n${normalizedUrl}\n\n### 删除原因\n${truncateNote(reason)}\n\n### 管理员校验\nMarketplace 管理员密码校验已通过。这个 issue 由网页服务端创建，仅作为审计记录和自动删除任务入口；管理员密码不会写入 issue。`;
-  let issue;
-  try {
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: {
-        title: `删除插件：${plugin.name} (${normalizedUrl})`,
-        body,
-        labels,
-      },
-    });
-  } catch (error) {
-    if (error.status !== 422) throw error;
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: { title: `删除插件：${plugin.name} (${normalizedUrl})`, body },
-    });
-  }
-
-  await markPluginRemoving({ pluginName: plugin.name, repositoryUrl: normalizedUrl });
-  await recordAdminAction({
-    actionType: 'plugin-removal',
-    targetType: 'plugin',
-    targetId: plugin.name,
-    repositoryUrl: normalizedUrl,
-    status: 'queued',
-    issueUrl: issue.html_url,
-    message: 'plugin removal requested',
-  });
-
-  return {
-    duplicate: false,
-    issueNumber: issue.number,
-    issueUrl: issue.html_url,
-    repositoryUrl: normalizedUrl,
-    pluginName: plugin.name,
-  };
-}
-
-async function handleRemoval(request, response) {
+async function handleCheck(request, response) {
   if (request.method !== 'POST') {
     response.writeHead(405, { Allow: 'POST' });
-    response.end();
-    return;
-  }
-  if (!checkRateLimit(request)) {
-    sendJson(response, 429, { error: '请求太频繁了，请稍后再试。' });
-    return;
-  }
-  try {
-    const rawBody = await readRequestBody(request);
-    const payload = rawBody ? JSON.parse(rawBody) : {};
-    const result = await createRemovalIssue({
-      pluginName: payload.pluginName,
-      repositoryUrl: payload.repositoryUrl,
-      adminPassword: payload.adminPassword,
-      reason: payload.reason,
-    });
-    sendJson(response, result.duplicate ? 200 : 201, {
-      ...result,
-      message: result.duplicate ? '这个插件已经有删除请求在处理中。' : '管理员校验已通过，删除任务已提交到 GitHub Action。',
-    });
-  } catch (error) {
-    const status = responseStatusForError(error);
-    sendJson(response, status, { error: error.message || '删除请求提交失败，请稍后重试。' });
-  }
-}
-async function createAdminSubmissionIssue({ action, submissionId, repositoryUrl, adminPassword, reason }) {
-  verifyAdminPassword(adminPassword);
-  if (!API_TOKEN) {
-    throw new Error('服务端还没有配置 GITHUB_TOKEN，暂时无法代创建管理员操作 issue。');
-  }
-  const actionMap = {
-    'manual-approve': { label: '手动通过上传请求', message: '管理员校验已通过，手动通过任务已提交到 GitHub Action。' },
-    'remove-submission': { label: '删除上传请求', message: '管理员校验已通过，删除上传请求任务已提交到 GitHub Action。' },
-  };
-  if (!actionMap[action]) throw new Error('未知的管理员操作。');
-  const { normalizedUrl, owner, repo } = parseGithubRepositoryUrl(repositoryUrl);
-  const labels = ['plugin-submission', 'admin-review'];
-  try {
-    await ensureLabel('plugin-submission', '2563eb', 'Codex marketplace plugin submission');
-    await ensureLabel('admin-review', '7c3aed', 'Marketplace admin action');
-  } catch (error) {
-    console.warn(`Label setup skipped: ${error.message}`);
-  }
-  const body = `### 管理员操作\n${action}\n\n### 提交仓库\n${normalizedUrl}\n\n### 提交 ID\n${truncateNote(submissionId || owner + '-' + repo)}\n\n### 操作原因\n${truncateNote(reason)}\n\n### 管理员校验\nMarketplace 管理员密码校验已通过。这个评论由网页服务端创建，仅作为审计记录和自动处理任务入口；管理员密码不会写入 issue。`;
-  const existing = await findExistingSubmissionIssue(normalizedUrl);
-  if (existing) {
-    await githubRequest(`/repos/${TARGET_REPOSITORY}/issues/${existing.number}/comments`, {
-      method: 'POST',
-      body: { body },
-    });
-    if (action === 'remove-submission') await markSubmissionRemoved(normalizedUrl);
-    if (action === 'manual-approve') await markSubmissionManualApproving(normalizedUrl);
-    await recordAdminAction({
-      actionType: action,
-      targetType: 'submission',
-      targetId: submissionId || owner + '-' + repo,
-      repositoryUrl: normalizedUrl,
-      status: 'queued',
-      issueUrl: existing.html_url,
-      message: actionMap[action].message,
-    });
-    return {
-      action,
-      issueNumber: existing.number,
-      issueUrl: existing.html_url,
-      repositoryUrl: normalizedUrl,
-      message: actionMap[action].message,
-    };
-  }
-
-  let issue;
-  try {
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: {
-        title: `${actionMap[action].label}：${owner}/${repo}`,
-        body,
-        labels,
-      },
-    });
-  } catch (error) {
-    if (error.status !== 422) throw error;
-    issue = await githubRequest(`/repos/${TARGET_REPOSITORY}/issues`, {
-      method: 'POST',
-      body: { title: `${actionMap[action].label}：${owner}/${repo}`, body },
-    });
-  }
-  if (action === 'remove-submission') await markSubmissionRemoved(normalizedUrl);
-  if (action === 'manual-approve') await markSubmissionManualApproving(normalizedUrl);
-  await recordAdminAction({
-    actionType: action,
-    targetType: 'submission',
-    targetId: submissionId || owner + '-' + repo,
-    repositoryUrl: normalizedUrl,
-    status: 'queued',
-    issueUrl: issue.html_url,
-    message: actionMap[action].message,
-  });
-
-  return {
-    action,
-    issueNumber: issue.number,
-    issueUrl: issue.html_url,
-    repositoryUrl: normalizedUrl,
-    message: actionMap[action].message,
-  };
-}
-
-async function handleAdminSubmission(request, response) {
-  if (request.method !== 'POST') {
-    response.writeHead(405, { Allow: 'POST' });
-    response.end();
-    return;
-  }
-  if (!checkRateLimit(request)) {
-    sendJson(response, 429, { error: '请求太频繁了，请稍后再试。' });
-    return;
-  }
-  try {
-    const rawBody = await readRequestBody(request);
-    const payload = rawBody ? JSON.parse(rawBody) : {};
-    const result = await createAdminSubmissionIssue({
-      action: payload.action,
-      submissionId: payload.submissionId,
-      repositoryUrl: payload.repositoryUrl,
-      adminPassword: payload.adminPassword,
-      reason: payload.reason,
-    });
-    sendJson(response, 201, result);
-  } catch (error) {
-    const status = responseStatusForError(error);
-    sendJson(response, status, { error: error.message || '管理员操作提交失败，请稍后重试。' });
-  }
-}
-
-async function handleSubmission(request, response) {
-  if (request.method === 'GET') {
-    try {
-      sendJson(response, 200, { submissions: await listSubmissionProgress() });
-    } catch (error) {
-      const registry = await readLocalJson('registry/plugins.json', { submissions: [] });
-      sendJson(response, 200, { submissions: registry.submissions || [], warning: error.message });
-    }
-    return;
-  }
-  if (request.method !== 'POST') {
-    response.writeHead(405, { Allow: 'GET, POST' });
     response.end();
     return;
   }
@@ -719,26 +372,121 @@ async function handleSubmission(request, response) {
     return;
   }
 
+  let parsed;
   try {
     const rawBody = await readRequestBody(request);
     const payload = rawBody ? JSON.parse(rawBody) : {};
-    const result = await createSubmissionIssue({
-      repositoryUrl: payload.repoUrl || payload.repositoryUrl,
-      note: payload.note,
+    parsed = parseGithubRepositoryUrl(payload.repositoryUrl || payload.repoUrl);
+    const detection = await detectPlugins(parsed.normalizedUrl);
+    const firstPlugin = detection.plugins[0];
+    if (!detection.duplicate) {
+      for (const plugin of detection.plugins) {
+        memory.plugins.set(plugin.name, plugin);
+        await upsertPlugin(plugin, 'active');
+      }
+    }
+    const check = await recordCheck({
+      normalizedUrl: parsed.normalizedUrl,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      status: 'approved',
+      reason: detection.duplicate ? '这个仓库已经在市场中，已刷新状态。' : detection.warnings.length ? '检测通过，但包含安装前复核提示。' : '检测通过，已加入市场。',
+      pluginName: firstPlugin?.name || null,
+      securityScan: firstPlugin?.securityScan || null,
+      stage: 'completed',
     });
-    sendJson(response, result.duplicate ? 200 : 201, {
-      ...result,
-      message: result.duplicate
-        ? result.duplicateType === 'listed'
-          ? '这个仓库已经收录在插件市场中。'
-          : '这个仓库已经在审核队列中。'
-        : '已提交，自动审核已进入队列。',
+    sendJson(response, detection.duplicate ? 200 : 201, {
+      status: 'approved',
+      duplicate: detection.duplicate,
+      plugins: detection.plugins,
+      check,
+      message: detection.duplicate ? '这个仓库已经在市场中，已刷新检测状态。' : '检测通过，插件已加入市场。',
+      stage: 'completed',
     });
   } catch (error) {
-    console.error('Submission failed:', error.stack || error.message);
+    const normalizedUrl = parsed?.normalizedUrl || normalizeRepositoryUrl(String(parsed?.repositoryUrl || ''));
+    if (parsed?.owner && parsed?.repo) {
+      await recordCheck({ normalizedUrl: parsed.normalizedUrl, owner: parsed.owner, repo: parsed.repo, status: 'failed', reason: error.message || '检测失败。', stage: 'validating' });
+    }
     const status = responseStatusForError(error);
-    sendJson(response, status, { error: error.message || '提交失败，请稍后重试。' });
+    sendJson(response, status, { status: 'failed', stage: 'validating', error: error.message || '检测失败，请稍后重试。' });
   }
+}
+
+
+async function handlePluginDelete(request, response, pluginName) {
+  if (request.method !== 'DELETE') {
+    response.writeHead(405, { Allow: 'DELETE' });
+    response.end();
+    return;
+  }
+  if (!checkRateLimit(request)) {
+    sendJson(response, 429, { error: '请求太频繁了，请稍后再试。' });
+    return;
+  }
+  try {
+    const rawBody = await readRequestBody(request);
+    const payload = rawBody ? JSON.parse(rawBody) : {};
+    verifyAdminPassword(payload.adminPassword);
+    const deleted = await deletePluginFromDb({ pluginName, adminReason: String(payload.reason || '').slice(0, 500) });
+    if (!deleted) throw httpError('没有找到这个已加入市场的插件，或它已经被删除。', 404);
+    memory.plugins.delete(pluginName);
+    sendJson(response, 200, { plugin: deleted, message: '插件已从市场删除。' });
+  } catch (error) {
+    sendJson(response, responseStatusForError(error), { error: error.message || '删除失败，请稍后重试。' });
+  }
+}
+
+async function currentMarket() {
+  const registry = await readRegistryFromDb();
+  if (registry) {
+    return {
+      source: 'postgres',
+      serviceStatus: 'live',
+      generatedAt: new Date().toISOString(),
+      plugins: (registry.plugins || []).filter((plugin) => plugin.source?.type === 'shared-repository'),
+      checks: (registry.submissions || []).filter((check) => check.source === 'web-detector'),
+    };
+  }
+  return {
+    source: 'memory',
+    serviceStatus: 'live',
+    generatedAt: new Date().toISOString(),
+    plugins: [...memory.plugins.values()].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    checks: [...memory.checks.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)),
+  };
+}
+
+async function handleClientLog(request, response) {
+  if (request.method !== 'POST') {
+    response.writeHead(405, { Allow: 'POST' });
+    response.end();
+    return;
+  }
+  try {
+    const rawBody = await readRequestBody(request);
+    const payload = rawBody ? JSON.parse(rawBody) : {};
+    const type = String(payload.type || 'client').replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'client';
+    const status = String(payload.status || 'info').replace(/[^a-z0-9_-]/gi, '').slice(0, 20) || 'info';
+    const message = String(payload.message || '').replace(/adminPassword|password|token|secret/gi, '[redacted]').slice(0, 300);
+    console.log(`[client:${type}:${status}] ${message}`);
+    sendJson(response, 204, {});
+  } catch (error) {
+    sendJson(response, 400, { error: 'client log ignored' });
+  }
+}
+
+async function handleMarket(_request, response) {
+  sendJson(response, 200, await currentMarket());
+}
+
+async function handleCompatibilityRegistry(_request, response) {
+  const market = await currentMarket();
+  sendJson(response, 200, {
+    marketplace: { name: 'mwe-codex-plugin-share', displayName: 'MWE Codex插件共享市场', generatedAt: market.generatedAt, stateSource: market.source },
+    plugins: market.plugins,
+    submissions: market.checks,
+  });
 }
 
 function isAllowedStaticPath(relativePath) {
@@ -748,68 +496,13 @@ function isAllowedStaticPath(relativePath) {
 
 function isAppShellRoute(pathname) {
   const firstSegment = pathname.split('/').filter(Boolean)[0];
-  return firstSegment === 'plugins';
+  return appShellRoutes.has(firstSegment);
 }
 
 async function sendAppShell(response) {
   const content = await fs.readFile(path.join(ROOT, 'index.html'));
-  response.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'public, max-age=300',
-  });
+  response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' });
   response.end(content);
-}
-
-async function serveStatic(request, response) {
-  const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
-  let pathname = decodeURIComponent(url.pathname);
-  const shouldServeAppShell = isAppShellRoute(pathname);
-  if (pathname === '/') pathname = '/index.html';
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  if (!path.extname(pathname)) pathname = path.join(pathname, 'index.html');
-
-  const relativePath = pathname.replace(/^\/+/, '');
-  if (!isAllowedStaticPath(relativePath)) {
-    if (shouldServeAppShell) {
-      await sendAppShell(response);
-      return;
-    }
-    await sendNotFound(response);
-    return;
-  }
-
-  const absolutePath = path.resolve(ROOT, relativePath);
-  if (!absolutePath.startsWith(`${ROOT}${path.sep}`)) {
-    await sendNotFound(response);
-    return;
-  }
-
-  try {
-    const stat = await fs.lstat(absolutePath);
-    if (stat.isSymbolicLink()) {
-      await sendNotFound(response);
-      return;
-    }
-    const realPath = await fs.realpath(absolutePath);
-    const realRoot = await fs.realpath(ROOT);
-    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
-      await sendNotFound(response);
-      return;
-    }
-    const content = await fs.readFile(realPath);
-    const extension = path.extname(realPath);
-    response.writeHead(200, {
-      'Content-Type': mimeTypes.get(extension) || 'application/octet-stream',
-      'Cache-Control': extension === '.json' ? 'no-store' : 'public, max-age=300',
-    });
-    response.end(content);
-  } catch {
-    if (shouldServeAppShell) {
-      await sendAppShell(response);
-      return;
-    }
-    await sendNotFound(response);
-  }
 }
 
 async function sendNotFound(response) {
@@ -823,32 +516,69 @@ async function sendNotFound(response) {
   }
 }
 
+async function serveStatic(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+  let pathname = decodeURIComponent(url.pathname);
+  const shouldServeAppShell = isAppShellRoute(pathname);
+  if (pathname === '/') pathname = '/index.html';
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  if (!path.extname(pathname)) pathname = path.join(pathname, 'index.html');
+
+  const relativePath = pathname.replace(/^\/+/, '');
+  if (!isAllowedStaticPath(relativePath)) {
+    if (shouldServeAppShell) return sendAppShell(response);
+    return sendNotFound(response);
+  }
+
+  const absolutePath = path.resolve(ROOT, relativePath);
+  if (!absolutePath.startsWith(`${ROOT}${path.sep}`)) return sendNotFound(response);
+
+  try {
+    const stat = await fs.lstat(absolutePath);
+    if (stat.isSymbolicLink()) return sendNotFound(response);
+    const realPath = await fs.realpath(absolutePath);
+    const realRoot = await fs.realpath(ROOT);
+    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) return sendNotFound(response);
+    const content = await fs.readFile(realPath);
+    const extension = path.extname(realPath);
+    response.writeHead(200, {
+      'Content-Type': mimeTypes.get(extension) || 'application/octet-stream',
+      'Cache-Control': ['.html', '.js', '.css'].includes(extension) ? 'no-cache' : 'public, max-age=300',
+    });
+    response.end(content);
+  } catch {
+    if (shouldServeAppShell) return sendAppShell(response);
+    return sendNotFound(response);
+  }
+}
+
 const server = http.createServer((request, response) => {
-  if (request.url?.startsWith('/api/health')) {
+  const pathname = request.url?.split('?')[0] || '/';
+  if (pathname === '/api/health') {
     dbAvailable()
-      .then((database) => sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY, database }))
-      .catch(() => sendJson(response, 200, { ok: true, repository: TARGET_REPOSITORY, database: false }));
+      .then((database) => sendJson(response, 200, { ok: true, mode: 'web-share-detector', database }))
+      .catch(() => sendJson(response, 200, { ok: true, mode: 'web-share-detector', database: false }));
     return;
   }
-  if (request.method === 'GET' && request.url?.split('?')[0] === '/registry/plugins.json') {
-    readRegistryFromDb()
-      .then((registry) => {
-        if (registry) sendJson(response, 200, registry);
-        else serveStatic(request, response);
-      })
-      .catch(() => serveStatic(request, response));
+  if (pathname === '/api/client-log') {
+    handleClientLog(request, response).catch((error) => sendJson(response, 400, { error: error.message || 'client log ignored' }));
     return;
   }
-  if (request.url?.startsWith('/api/admin/submissions')) {
-    handleAdminSubmission(request, response);
+  if (pathname === '/api/market') {
+    handleMarket(request, response).catch((error) => sendJson(response, 500, { error: error.message || '市场状态加载失败。' }));
     return;
   }
-  if (request.url?.startsWith('/api/submissions')) {
-    handleSubmission(request, response);
+  if (pathname.startsWith('/api/plugins/')) {
+    const pluginName = decodeURIComponent(pathname.split('/').pop() || '');
+    handlePluginDelete(request, response, pluginName);
     return;
   }
-  if (request.url?.startsWith('/api/removals')) {
-    handleRemoval(request, response);
+  if (pathname === '/api/check') {
+    handleCheck(request, response).catch((error) => sendJson(response, responseStatusForError(error), { error: error.message || '检测失败。' }));
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/registry/plugins.json') {
+    handleCompatibilityRegistry(request, response).catch((error) => sendJson(response, 500, { error: error.message || 'registry 加载失败。' }));
     return;
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -856,9 +586,9 @@ const server = http.createServer((request, response) => {
     response.end();
     return;
   }
-  serveStatic(request, response);
+  serveStatic(request, response).catch((error) => sendJson(response, 500, { error: error.message || '页面加载失败。' }));
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`MWE Codex marketplace server listening on ${PORT}`);
+  console.log(`MWE Codex shared marketplace server listening on ${PORT}`);
 });

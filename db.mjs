@@ -88,7 +88,8 @@ function rowToSubmission(row) {
     verifiedStatus: row.verified_status || (row.status === 'approved' ? 'verified' : 'reviewing'),
     syncStatus: row.sync_status || (row.status === 'approved' ? 'synced' : row.status === 'failed' ? 'failed' : 'pending'),
     securityScan: row.security_scan || row.review?.securityScan || null,
-    source: 'postgres',
+    stage: row.review?.stage || (row.status === 'approved' ? 'completed' : row.status === 'failed' ? 'validating' : 'received'),
+    source: row.source || 'postgres',
   };
 }
 
@@ -113,7 +114,13 @@ export async function listSubmissionsFromDb({ includeRemoved = false } = {}) {
   const result = await query(
     `select s.*, p.name as plugin_name, p.display_name, p.verified_status, p.sync_status, p.security_scan
      from submissions s
-     left join plugins p on p.normalized_repository_url = s.normalized_repository_url and p.status = 'active'
+     left join lateral (
+       select name, display_name, verified_status, sync_status, security_scan
+       from plugins
+       where normalized_repository_url = s.normalized_repository_url and status = 'active'
+       order by featured desc, display_name asc
+       limit 1
+     ) p on true
      where ($1::boolean or s.status <> 'removed')
      order by s.updated_at desc`,
     [includeRemoved]
@@ -212,11 +219,52 @@ export async function upsertPlugin(plugin, status = 'active') {
 
 export async function upsertSubmission(submission) {
   if (!(await dbAvailable())) return;
+  const normalized = normalizeRepositoryUrl(submission.repositoryUrl);
+  const values = [
+    submission.id,
+    submission.slug,
+    submission.owner,
+    submission.repo,
+    submission.repositoryUrl,
+    normalized,
+    submission.note || '',
+    submission.submitter || 'unknown',
+    submission.status || 'reviewing',
+    submission.review?.issueUrl || submission.issueUrl || null,
+    submission.pluginName || null,
+    JSON.stringify(submission.review || null),
+    JSON.stringify(submission.review?.securityScan || submission.securityScan || null),
+    submission.source || 'registry-import',
+    submission.updatedAt || submission.submittedAt || null,
+  ];
+
+  const updated = await query(
+    `update submissions set
+      slug = $2,
+      owner = $3,
+      repo = $4,
+      repository_url = $5,
+      note = $7,
+      submitter = $8,
+      status = $9,
+      issue_url = $10,
+      plugin_name = $11,
+      review = $12::jsonb,
+      security_scan = $13::jsonb,
+      source = $14,
+      updated_at = coalesce($15::timestamptz, now())
+     where normalized_repository_url = $6
+       and status in ('reviewing', 'approved', 'manual_approving')
+       and $1::text is not null`,
+    values
+  );
+  if (updated.rowCount > 0) return;
+
   await query(
     `insert into submissions (
       id, slug, owner, repo, repository_url, normalized_repository_url, note,
-      submitter, status, issue_url, review, security_scan, source, updated_at
-    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,coalesce($14::timestamptz, now()))
+      submitter, status, issue_url, plugin_name, review, security_scan, source, updated_at
+    ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,coalesce($15::timestamptz, now()))
     on conflict (id) do update set
       slug = excluded.slug,
       owner = excluded.owner,
@@ -227,26 +275,12 @@ export async function upsertSubmission(submission) {
       submitter = excluded.submitter,
       status = excluded.status,
       issue_url = excluded.issue_url,
+      plugin_name = excluded.plugin_name,
       review = excluded.review,
       security_scan = excluded.security_scan,
       source = excluded.source,
       updated_at = excluded.updated_at`,
-    [
-      submission.id,
-      submission.slug,
-      submission.owner,
-      submission.repo,
-      submission.repositoryUrl,
-      normalizeRepositoryUrl(submission.repositoryUrl),
-      submission.note || '',
-      submission.submitter || 'unknown',
-      submission.status || 'reviewing',
-      submission.review?.issueUrl || submission.issueUrl || null,
-      JSON.stringify(submission.review || null),
-      JSON.stringify(submission.review?.securityScan || submission.securityScan || null),
-      submission.source || 'registry-import',
-      submission.updatedAt || submission.submittedAt || null,
-    ]
+    values
   );
 }
 
@@ -325,4 +359,41 @@ export async function recordAdminAction({ actionType, targetType, targetId, repo
      values ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [actionType, targetType, targetId || null, repositoryUrl || null, repositoryUrl ? normalizeRepositoryUrl(repositoryUrl) : null, status, issueUrl || null, message || null]
   );
+}
+
+export async function findPluginsByRepositoryFromDb(repositoryUrl) {
+  if (!(await dbAvailable())) return null;
+  const normalized = normalizeRepositoryUrl(repositoryUrl);
+  const result = await query(
+    `select * from plugins
+     where normalized_repository_url = $1 and status = 'active'
+     order by featured desc, display_name asc`,
+    [normalized]
+  );
+  return result.rows.map(rowToPlugin);
+}
+
+
+export async function deletePluginFromDb({ pluginName, adminReason = '' }) {
+  if (!(await dbAvailable())) return null;
+  const result = await query(
+    `update plugins
+     set status = 'removed', updated_at = now(),
+         review = coalesce(review, '{}'::jsonb) || jsonb_build_object('decision','removed','reviewedAt', now(), 'reason', $2::text)
+     where name = $1 and status = 'active'
+     returning *`,
+    [pluginName, adminReason || 'admin removed from web marketplace']
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  await markRepositorySubmissionRemovedIfNoActivePlugin(row.normalized_repository_url);
+  await recordAdminAction({
+    actionType: 'plugin-delete',
+    targetType: 'plugin',
+    targetId: row.name,
+    repositoryUrl: row.repository_url,
+    status: 'completed',
+    message: adminReason || 'admin removed from web marketplace',
+  });
+  return rowToPlugin(row);
 }

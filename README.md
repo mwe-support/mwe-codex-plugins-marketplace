@@ -1,141 +1,77 @@
-# MWE Codex 插件共享市场
+# MWE Codex 插件快享市场
 
-一个由中央 GitHub 仓库驱动的 Codex 插件共享市场。当前仓库只保留已确定的 Perspective UI 方案，默认 registry 从空列表开始，方便真实测试插件分享、审核、合并和同步。
+这是一个轻量的 Codex 插件分享网页。用户只需要粘贴公开 GitHub 仓库链接，服务端会读取仓库并检测是否包含 Codex 插件入口；检测通过后，插件会写入 PostgreSQL 并实时显示在市场列表中。
 
-## 本地服务
+当前版本不再使用中央 registry 仓库、GitHub issue 审核流或 GitHub Action 同步快照。网页本身就是分享入口和实时状态源。
 
-开发预览可以直接启动本地 Node 服务：
+## 功能
 
-```bash
-PORT=4173 node server.mjs
-```
+- 粘贴 GitHub 仓库链接并触发服务端检测。
+- 支持 `.codex-plugin/plugin.json`，也会宽松识别明显的 `skills/*/SKILL.md` 或 MCP 插件结构。
+- 非关键问题会作为安全/结构提示显示，不会轻易让自动检测失败。
+- 检测通过后立即出现在插件市场。
+- 检测失败会立刻写入失败记录，不再停留在待审核。
+- 插件卡片提供复制仓库链接和复制 Codex CLI 安装命令。
+- 前端交互源码在 `src/app.ts`，构建输出为 `app.js`。
 
-持久化访问使用 Docker Compose。网页提交功能需要一个能创建 issue 的 GitHub token，可以放在 shell 环境或本地 `.env` 中：
-
-```bash
-cp .env.example .env
-# 编辑 .env，填入 GITHUB_TOKEN，并设置 MARKETPLACE_ADMIN_PASSWORD 或 ADMIN_PASSWORD
-docker compose up -d --build
-```
-
-服务默认监听：
-
-```text
-http://127.0.0.1:8787
-```
-
-首次启动或 schema 更新后，初始化数据库并导入当前 registry：
+## 本地开发
 
 ```bash
-docker compose run --rm mwe-codex-marketplace npm run db:migrate
-docker compose run --rm mwe-codex-marketplace npm run db:import
+npm install
+npm run build
+PORT=8787 node server.mjs
 ```
 
-PostgreSQL 是网页端的实时状态源：提交、删除请求、管理员手动通过等操作会先写入数据库，前端每 5 秒轻量同步 `/registry/plugins.json` 和 `/api/submissions`，因此无需等待静态 registry 文件重新生成才更新页面。GitHub 中的 `marketplace/*.json`、`registry/plugins.json`、`marketplace.json` 和 `.agents/plugins/marketplace.json` 仍然是可审计、可安装的最终发布源。
+打开 `http://127.0.0.1:8787/`。
 
-Redis 暂不引入。当前单容器 web 服务加 PostgreSQL 足够承载即时反馈和持久状态；后续出现多实例实时广播、后台任务队列、管理员操作限流或 GitHub webhook 去抖需求时，再补 Redis 更合适。
-
-容器名：
-
-```text
-marvel-local-server-mwe-codex-marketplace
-```
-
-## 用户级 systemd 服务
-
-安装并启动本地持久服务：
+## 容器运行
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp deploy/mwe-codex-marketplace.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now mwe-codex-marketplace.service
+docker compose up -d --build mwe-codex-marketplace
 ```
 
-## Cloudflare Tunnel
+服务地址：`http://127.0.0.1:8787/`。
 
-本地 web 容器在 `127.0.0.1:8787`，Compose 也提供了可选的 Cloudflare Tunnel profile。创建持久 tunnel 后，将 hostname 指向：
+PostgreSQL 会通过 compose 启动；容器启动时会自动执行 `scripts/db-migrate.mjs`。
 
-```text
-http://mwe-codex-marketplace:80
+## 环境变量
+
+- `DATABASE_URL`：PostgreSQL 连接串。
+- `SUBMISSION_RATE_LIMIT`：10 分钟内每个 IP 的提交次数，默认 `8`。
+- `PLUGIN_CLONE_TIMEOUT_MS`：单次仓库 clone 超时，默认 `45000`。
+
+不再需要 `GITHUB_TOKEN` 或 `MARKETPLACE_GITHUB_REPOSITORY` 来处理普通上传。
+
+管理员删除已加入市场的插件时，需要设置 `MARKETPLACE_ADMIN_PASSWORD`，也兼容 `ADMIN_PASSWORD`。网页详情页会提供删除表单，服务端校验密码后直接从当前市场移除插件。
+
+## API
+
+### `GET /api/health`
+
+返回服务和数据库状态。
+
+### `GET /api/market`
+
+返回当前插件列表和最近检测记录。
+
+### `POST /api/check`
+
+请求体：
+
+```json
+{
+  "repositoryUrl": "https://github.com/owner/repo"
+}
 ```
 
-然后用外部环境变量启动，不要把 token 写进仓库：
+通过时返回 `status: "approved"` 和插件列表；失败时返回 `status: "failed"` 与失败原因，并在市场状态中保留失败记录。
+
+## 验证
 
 ```bash
-export CLOUDFLARE_TUNNEL_TOKEN='...'
-docker compose --profile tunnel up -d --build
+npm run check
+curl -sS http://127.0.0.1:8787/api/health
+curl -sS -X POST http://127.0.0.1:8787/api/check \
+  -H 'Content-Type: application/json' \
+  --data '{"repositoryUrl":"https://github.com/callstackincubator/agent-skills"}'
 ```
-
-更多说明见 [deploy/cloudflare-tunnel.md](deploy/cloudflare-tunnel.md)。
-
-## 中央仓库模型
-
-核心文件：
-
-- `marketplace/submissions/*.json`：用户提交的 GitHub 仓库链接，新提交默认 `reviewing`。
-- `marketplace/plugins/*.json`：审核通过后的插件源记录。
-- `marketplace/snapshots/*`：自动审核通过后复制进中央仓库的可安装插件快照，供 Codex marketplace 使用。
-- `registry/plugins.json`：网页读取的展示 registry，由脚本生成。
-- `marketplace.json`：网页和调试用的市场快照，由脚本生成。
-- `.agents/plugins/marketplace.json`：Codex CLI/Desktop 识别的 marketplace manifest，由脚本生成。
-- `scripts/marketplace.mjs`：提交、审核、拒绝、管理员移除、同步、校验的统一 CLI。
-
-完整设计见 [docs/central-repository.md](docs/central-repository.md)。
-
-## 测试分享插件
-
-当前 registry 可以从空列表开始。用户在网页 `/submit` 填入 GitHub 仓库链接后，站点后端会自动创建或复用追踪 issue；用户不需要跳转到 GitHub 手动创建 issue。issue 创建后，GitHub Action 会按规则自动审核、同步并提交到 `main`。也可以本地模拟一条提交：
-
-```bash
-node scripts/marketplace.mjs submit https://github.com/owner/codex-plugin --note "插件说明" --by @alice
-node scripts/marketplace.mjs sync
-```
-
-同步后网页会显示 `reviewing / pending` 状态。维护者审核通过并补齐 metadata：
-
-```bash
-node scripts/marketplace.mjs approve <submission-id> \
-  --name demo-plugin \
-  --display-name "Demo Plugin" \
-  --description "源仓库 summary 的中文翻译" \
-  --author owner \
-  --category "Developer Tools" \
-  --version 0.1.0 \
-  --release-tag v0.1.0 \
-  --tags Demo,Codex \
-  --capabilities Skill,Guidance \
-  --by @maintainer
-node scripts/marketplace.mjs sync
-```
-
-审核通过后网页、`marketplace.json` 和 `.agents/plugins/marketplace.json` 会显示 `verified / synced`。每个已验证插件都会提供插件 GitHub 链接和 `codex plugin add plugin-name@codex-community` 的单插件安装命令。删除已收录插件、删除失败上传请求、或对失败上传请求进行管理员手动通过，都需要网页提交管理员密码；密码由容器环境变量 `MARKETPLACE_ADMIN_PASSWORD` 或 `ADMIN_PASSWORD` 提供，只在服务端校验，不会写入 GitHub issue。
-
-## 自动审核规则
-
-`node scripts/marketplace.mjs auto-review <submission-id|github-url>` 会克隆公开 GitHub 仓库并检查：
-
-- 根目录或 `plugins/*` 子目录存在 `.codex-plugin/plugin.json`。
-- `name`、`version`、`author`、`interface.displayName`、`interface.category`、`interface.capabilities` 有效。
-- `version` 使用 SemVer。
-- 插件目录包含 `README.md`。
-- manifest 声明的 `skills` 和 `mcpServers` 路径真实存在。
-
-规则通过后会自动生成 `marketplace/plugins/<plugin>.json`，同步 registry，并在 GitHub Action 中直接提交到 `main`，让网页和 Codex marketplace 快照一起更新。
-
-## 校验与测试
-
-```bash
-node scripts/marketplace.mjs validate
-node scripts/marketplace.mjs sync --check
-node scripts/test-marketplace-flow.mjs
-```
-
-`test-marketplace-flow.mjs` 会复制一份临时仓库到 `/tmp`，测试提交链接、审核通过、同步 registry 和生成 `marketplace.json` 的完整闭环，不会污染真实 registry。
-
-## GitHub 集成
-
-- `server.mjs`：网页提交 API，校验 GitHub URL、去重并代创建追踪 issue。
-- `.github/ISSUE_TEMPLATE/plugin-submission.yml`：维护者兜底使用的 issue 表单。
-- `.github/workflows/marketplace-validate.yml`：PR / main 分支校验 marketplace 源文件和生成文件。
-- `.github/workflows/marketplace-auto-review.yml`：从 issue 标题/正文或评论提取仓库链接，自动审核、同步并提交到 `main`。

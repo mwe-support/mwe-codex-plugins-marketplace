@@ -30,12 +30,11 @@ services:
     ports:
       - "127.0.0.1:8787:80"
     environment:
-      MARKETPLACE_GITHUB_REPOSITORY: mwe-support/mwe-codex-plugins-marketplace
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      GH_TOKEN: ${GH_TOKEN:-}
+      DATABASE_URL: ${DATABASE_URL:-postgres://mwe_marketplace:mwe_marketplace_dev@postgres:5432/mwe_codex_marketplace}
+      SUBMISSION_RATE_LIMIT: ${SUBMISSION_RATE_LIMIT:-8}
+      PLUGIN_CLONE_TIMEOUT_MS: ${PLUGIN_CLONE_TIMEOUT_MS:-45000}
       MARKETPLACE_ADMIN_PASSWORD: ${MARKETPLACE_ADMIN_PASSWORD:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      DATABASE_URL: ${DATABASE_URL:-postgres://mwe_marketplace:mwe_marketplace_dev@postgres:5432/mwe_codex_marketplace}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

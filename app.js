@@ -1,1231 +1,1046 @@
-const app = document.querySelector("#app");
-const toast = document.querySelector("#toast");
-
-const MARKETPLACE_REPOSITORY_URL = "https://github.com/mwe-support/mwe-codex-plugins-marketplace";
-const MARKETPLACE_COMMAND = `codex plugin marketplace add ${MARKETPLACE_REPOSITORY_URL}`;
-
-let registry = { marketplace: {}, plugins: [], submissions: [] };
-let state = {
-  route: window.location.pathname,
-  query: "",
-  category: "全部",
-  showOnlyVerified: false,
-  submitTouched: false,
-  submitLoading: false,
-  submitError: "",
-  submitSuccessUrl: "",
-  submitSuccessMessage: "",
-  submitIssueNumber: "",
-  reviews: [],
-  reviewsLoading: false,
-  reviewsError: "",
-  removalPluginName: "",
-  removalTouched: false,
-  removalLoading: false,
-  removalError: "",
-  removalSuccessUrl: "",
-  removalSuccessMessage: "",
-  removalIssueNumber: "",
-  adminReviewTarget: "",
-  adminReviewLoading: false,
-  adminReviewError: "",
-  adminReviewSuccessUrl: "",
-  adminReviewSuccessMessage: "",
-  optimisticRemovedRepositories: [],
-  optimisticRemovedPluginNames: [],
-  liveStatus: "loading",
-  liveError: "",
-  lastLiveSyncAt: "",
+const appRoot = document.querySelector("#app");
+const toastRoot = document.querySelector("#toast");
+if (!appRoot || !toastRoot) {
+    throw new Error("App root is missing");
+}
+const app = appRoot;
+const toast = toastRoot;
+const productName = "MWE Codex插件共享市场";
+const marketplaceUrl = "https://github.com/mwe-support/mwe-codex-plugins-marketplace";
+const commonCategories = ["全部", "Coding", "Developer Tools", "Productivity", "Design", "Data", "MCP", "Codex Skill"];
+const state = {
+    route: window.location.pathname,
+    query: "",
+    category: "全部",
+    onlyWarnings: false,
+    submitUrl: "",
+    submitTouched: false,
+    submitLoading: false,
+    submitError: "",
+    submitMessage: "",
+    submitStage: "idle",
+    submitStatus: "idle",
+    deletePassword: "",
+    deleteReason: "",
+    deleteLoading: false,
+    deleteError: "",
+    deleteMessage: "",
+    liveStatus: "loading",
+    liveError: "",
+    lastSyncAt: "",
+    logs: [],
+    market: { plugins: [], checks: [] },
 };
-
-let marketplaceSyncTimer = 0;
-let marketplaceSyncInFlight = false;
-
-const statusLabel = {
-  verified: "已验证",
-  reviewing: "审核中",
-  unverified: "未验证",
-  synced: "已同步",
-  pending: "待同步",
-  failed: "同步失败",
-};
-
-const icon = (name, label = "") =>
-  `<i data-lucide="${name}" class="icon" aria-hidden="true"></i>${label ? `<span>${label}</span>` : ""}`;
-
-const formatDate = (value) =>
-  new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
-
-const formatShanghaiDateTime = (value) =>
-  new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-
-const safe = (value) =>
-  String(value ?? "")
+let syncTimer = 0;
+let clockTimer = 0;
+let renderQueued = false;
+let marketSignature = "";
+let searchRenderTimer = 0;
+let logId = 0;
+let submitStageTimer = 0;
+let submitProgressTimers = [];
+let submitRunId = 0;
+let suppressSubmitBlur = false;
+let toastTimer = 0;
+let skipNextFocusValueRestore = false;
+const safe = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-
-function navigate(path) {
-  window.history.pushState({}, "", path);
-  state.route = path;
-  render();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+const icon = (name, label = "") => `<i data-lucide="${name}" class="icon" aria-hidden="true"></i>${label ? `<span>${label}</span>` : ""}`;
+function addLog(type, message, status = "info") {
+    const entry = { id: ++logId, at: new Date().toISOString(), type, status, message: message.slice(0, 300) };
+    state.logs = [entry, ...state.logs].slice(0, 50);
+    void fetch("/api/client-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: entry.type, status: entry.status, message: entry.message }),
+    }).catch(() => undefined);
 }
-
-function showToast(message) {
-  toast.textContent = message;
-  toast.hidden = false;
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => {
-    toast.hidden = true;
-  }, 3600);
-}
-
-async function copyText(value, label = "已复制") {
-  try {
-    await navigator.clipboard.writeText(value);
-    showToast(label);
-  } catch {
-    showToast("复制失败，请手动选择文本");
-  }
-}
-
-function systemTheme() {
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
 function themeMode() {
-  const stored = localStorage.getItem("marketplace-theme-mode") || localStorage.getItem("marketplace-theme") || "system";
-  return ["system", "light", "dark"].includes(stored) ? stored : "system";
+    const stored = localStorage.getItem("marketplace-theme-mode") || "dark";
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "dark";
 }
-
-function currentTheme() {
-  const mode = themeMode();
-  return mode === "system" ? systemTheme() : mode;
+function systemTheme() {
+    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
-
 function applyTheme() {
-  document.documentElement.dataset.theme = currentTheme();
-  document.documentElement.dataset.themeMode = themeMode();
+    const mode = themeMode();
+    document.documentElement.dataset.themeMode = mode;
+    document.documentElement.dataset.theme = mode === "system" ? systemTheme() : mode;
 }
-
+function syncThemeButtons() {
+    const mode = themeMode();
+    document.querySelectorAll("[data-theme-mode]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.themeMode === mode));
+    });
+}
+function scheduleRender() {
+    if (renderQueued)
+        return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+    });
+}
+function prefersReducedMotion() {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
 function setThemeMode(mode) {
-  localStorage.setItem("marketplace-theme-mode", mode);
-  localStorage.removeItem("marketplace-theme");
-  applyTheme();
-  syncThemeControls();
+    localStorage.setItem("marketplace-theme-mode", mode);
+    applyTheme();
+    syncThemeButtons();
+    addLog("theme", `主题切换为 ${mode === "system" ? "跟随系统" : mode === "light" ? "浅色" : "深色"}`, "success");
 }
-
-function syncThemeControls() {
-  const mode = themeMode();
-  document.querySelectorAll("[data-theme-mode]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.themeMode === mode));
-  });
+function showToast(message) {
+    toast.textContent = message;
+    toast.hidden = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+        toast.hidden = true;
+    }, 3200);
 }
-
-function normalizeClientRepositoryUrl(value) {
-  return String(value || "").trim().replace(/\.git$/, "");
+async function copyText(value, label) {
+    if (!value)
+        return;
+    try {
+        if (navigator.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(value);
+        }
+        else {
+            const textarea = document.createElement("textarea");
+            textarea.value = value;
+            textarea.setAttribute("readonly", "");
+            textarea.style.position = "fixed";
+            textarea.style.left = "-9999px";
+            textarea.style.top = "0";
+            document.body.appendChild(textarea);
+            textarea.select();
+            const copied = document.execCommand("copy");
+            textarea.remove();
+            if (!copied)
+                throw new Error("execCommand copy failed");
+        }
+        showToast(label);
+        addLog("copy", label, "success");
+    }
+    catch {
+        showToast("复制失败，请手动选择文本");
+        addLog("copy", "复制失败，请手动选择文本", "error");
+    }
 }
-
-function isOptimisticallyRemovedRepository(repositoryUrl) {
-  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
-  return normalized && state.optimisticRemovedRepositories.includes(normalized);
+function normalizeRepositoryUrl(value) {
+    return value.trim().replace(/\.git$/, "");
 }
-
-function withoutOptimisticallyRemoved(items) {
-  return (items || []).filter((item) => !isOptimisticallyRemovedRepository(item.repositoryUrl));
+function cliCommand(repositoryUrl) {
+    return `codex plugin marketplace add ${normalizeRepositoryUrl(repositoryUrl)}`;
 }
-
-function withoutOptimisticallyRemovedPlugins(plugins) {
-  return (plugins || []).filter((plugin) => !state.optimisticRemovedPluginNames.includes(plugin.name) && !isOptimisticallyRemovedRepository(plugin.repositoryUrl));
+function formatTime(value, withSeconds = false) {
+    if (!value)
+        return "刚刚";
+    return new Intl.DateTimeFormat("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: withSeconds ? "2-digit" : undefined,
+        hour12: false,
+    }).format(new Date(value));
 }
-
-function removeRepositoryFromLocal(repositoryUrl) {
-  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
-  if (!normalized) return;
-  if (!state.optimisticRemovedRepositories.includes(normalized)) {
-    state.optimisticRemovedRepositories.push(normalized);
-  }
-  registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
-  registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
-  state.reviews = withoutOptimisticallyRemoved(state.reviews);
+function beijingTime() {
+    return new Intl.DateTimeFormat("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).format(new Date());
 }
-
-function removePluginFromLocal(repositoryUrl, pluginName = "") {
-  const normalized = normalizeClientRepositoryUrl(repositoryUrl);
-  if (pluginName && !state.optimisticRemovedPluginNames.includes(pluginName)) {
-    state.optimisticRemovedPluginNames.push(pluginName);
-  }
-  registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
-  const stillHasPluginFromRepository = normalized && (registry.plugins || []).some((plugin) => normalizeClientRepositoryUrl(plugin.repositoryUrl) === normalized);
-  if (!stillHasPluginFromRepository) {
-    removeRepositoryFromLocal(repositoryUrl);
-  }
+function updateClock() {
+    document.querySelectorAll("[data-beijing-time]").forEach((node) => {
+        node.textContent = beijingTime();
+    });
 }
-
-async function loadRegistry() {
-  try {
-    const response = await fetch("/registry/plugins.json", { cache: "no-store" });
-    registry = await response.json();
-    registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
-    registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
-    state.liveStatus = "live";
-    state.liveError = "";
-    state.lastLiveSyncAt = new Date().toISOString();
-  } catch {
-    state.liveStatus = "stale";
-    state.liveError = "Registry 加载失败";
-    showToast("Registry 加载失败，正在显示空状态");
-    registry = { marketplace: {}, plugins: [], submissions: [] };
-  }
-  state.reviews = registry.submissions || [];
-  render();
-  loadReviewItems();
+function startClock() {
+    window.clearInterval(clockTimer);
+    updateClock();
+    clockTimer = window.setInterval(updateClock, 1000);
 }
-
-async function loadReviewItems({ silent = false } = {}) {
-  if (!silent) state.reviewsLoading = true;
-  state.reviewsError = "";
-  if (!silent && state.route.startsWith("/reviews")) render();
-  try {
-    const response = await fetch("/api/submissions", { cache: "no-store" });
-    const payload = await response.json();
-    state.reviews = withoutOptimisticallyRemoved(payload.submissions || registry.submissions || []);
-    state.reviewsError = payload.warning || "";
-  } catch (error) {
-    state.reviews = withoutOptimisticallyRemoved(registry.submissions || []);
-    state.reviewsError = error.message || "审核进度加载失败";
-  } finally {
-    if (!silent) state.reviewsLoading = false;
-    if (!silent && state.route.startsWith("/reviews")) render();
-  }
+function validateGithubUrl(value) {
+    if (!value.trim())
+        return "请输入 GitHub 仓库链接。";
+    try {
+        const url = new URL(value.trim());
+        if (url.protocol !== "https:" || url.hostname !== "github.com") {
+            return "目前只支持 https://github.com/owner/repo。";
+        }
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length < 2)
+            return "链接需要包含 owner 和 repo。";
+        return "";
+    }
+    catch {
+        return "URL 格式不正确，请粘贴完整 GitHub 仓库链接。";
+    }
 }
-
-function stateFingerprint() {
-  return JSON.stringify({
-    plugins: (registry.plugins || []).map((plugin) => [
-      plugin.name,
-      plugin.version,
-      plugin.verifiedStatus,
-      plugin.syncStatus,
-      plugin.stateStatus,
-      plugin.securityScan?.status,
-      plugin.syncTimestamp,
-    ]),
-    submissions: (state.reviews || []).map((item) => [
-      item.id,
-      item.repositoryUrl,
-      item.status,
-      item.issueUrl,
-      item.updatedAt,
-      item.securityScan?.status,
-    ]),
-    liveStatus: state.liveStatus,
-  });
-}
-
-function shouldRenderLiveUpdate() {
-  return (
-    state.route === "/" ||
-    state.route.startsWith("/perspective") ||
-    state.route.startsWith("/reviews") ||
-    state.route.startsWith("/plugins/")
-  );
-}
-
-async function syncMarketplaceState({ renderOnChange = true } = {}) {
-  if (marketplaceSyncInFlight) return;
-  marketplaceSyncInFlight = true;
-  const previousFingerprint = stateFingerprint();
-  try {
-    const response = await fetch("/registry/plugins.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Registry 同步失败");
-    const nextRegistry = await response.json();
-    registry = nextRegistry || { marketplace: {}, plugins: [], submissions: [] };
-    registry.plugins = withoutOptimisticallyRemovedPlugins(registry.plugins);
-    registry.submissions = withoutOptimisticallyRemoved(registry.submissions);
-    await loadReviewItems({ silent: true });
-    state.liveStatus = "live";
-    state.liveError = "";
-    state.lastLiveSyncAt = new Date().toISOString();
-  } catch (error) {
-    state.liveStatus = "stale";
-    state.liveError = error.message || "实时同步暂时不可用";
-  } finally {
-    marketplaceSyncInFlight = false;
-  }
-
-  if (renderOnChange && shouldRenderLiveUpdate() && stateFingerprint() !== previousFingerprint) {
-    render();
-  }
-}
-
-function startMarketplaceSync() {
-  window.clearInterval?.(marketplaceSyncTimer);
-  marketplaceSyncTimer = window.setInterval?.(() => {
-    syncMarketplaceState({ renderOnChange: true });
-  }, 5000) || 0;
-}
-
 function categories() {
-  return ["全部", ...new Set(registry.plugins.map((plugin) => plugin.category))];
+    const dynamic = new Set(state.market.plugins.map((plugin) => plugin.category).filter(Boolean));
+    const merged = [...commonCategories, ...dynamic];
+    return [...new Set(merged)].filter((category) => category === "全部" || dynamic.has(category) || ["Coding", "Developer Tools"].includes(category));
 }
-
 function filteredPlugins() {
-  const deferredQuery = state.query.trim().toLowerCase();
-  return registry.plugins.filter((plugin) => {
-    const haystack = [
-      plugin.name,
-      plugin.displayName,
-      plugin.description,
-      plugin.author,
-      plugin.category,
-      ...(plugin.tags || []),
-    ]
-      .join(" ")
-      .toLowerCase();
-
-    const matchesQuery = !deferredQuery || haystack.includes(deferredQuery);
-    const matchesCategory = state.category === "全部" || plugin.category === state.category;
-    const matchesVerified = !state.showOnlyVerified || plugin.verifiedStatus === "verified";
-    return matchesQuery && matchesCategory && matchesVerified;
-  });
+    const query = state.query.trim().toLowerCase();
+    return state.market.plugins.filter((plugin) => {
+        const haystack = [
+            plugin.name,
+            plugin.displayName,
+            plugin.description,
+            plugin.author,
+            plugin.category,
+            plugin.repositoryUrl,
+            ...(plugin.tags || []),
+            ...(plugin.capabilities || []),
+        ]
+            .join(" ")
+            .toLowerCase();
+        const matchesQuery = !query || haystack.includes(query);
+        const matchesCategory = state.category === "全部" || plugin.category === state.category;
+        const matchesWarnings = !state.onlyWarnings || plugin.securityScan?.status === "warnings";
+        return matchesQuery && matchesCategory && matchesWarnings;
+    });
 }
-
-const reviewStatusLabel = {
-  reviewing: "待审核",
-  approved: "已同步",
-  rejected: "已拒绝",
-  failed: "需处理",
-  closed: "已关闭",
-  removed: "已删除",
-};
-
-function reviewItems() {
-  return (state.reviews.length ? state.reviews : registry.submissions || []).slice().sort((a, b) => new Date(b.updatedAt || b.submittedAt) - new Date(a.updatedAt || a.submittedAt));
+async function loadMarket({ silent = false } = {}) {
+    if (!silent)
+        state.liveStatus = "loading";
+    try {
+        const response = await fetch("/api/market", { cache: "no-store" });
+        const payload = (await response.json());
+        if (!response.ok)
+            throw new Error("市场状态加载失败");
+        const nextMarket = {
+            plugins: payload.plugins || [],
+            checks: payload.checks || [],
+            generatedAt: payload.generatedAt,
+            source: payload.source,
+            serviceStatus: payload.serviceStatus,
+        };
+        const nextSignature = JSON.stringify({ plugins: nextMarket.plugins, checks: nextMarket.checks, status: "live" });
+        const changed = nextSignature !== marketSignature || state.liveStatus !== "live" || Boolean(state.liveError);
+        state.market = nextMarket;
+        marketSignature = nextSignature;
+        state.liveStatus = payload.serviceStatus || "live";
+        state.liveError = "";
+        state.lastSyncAt = new Date().toISOString();
+        if (silent)
+            return;
+        if (!changed)
+            return;
+        addLog("api", "市场数据已同步", "success");
+    }
+    catch (error) {
+        state.liveStatus = "stale";
+        state.liveError = error instanceof Error ? error.message : "实时状态暂时不可用";
+        addLog("api", state.liveError, "error");
+    }
+    scheduleRender();
 }
-
-function reviewColumnItems(statuses) {
-  return reviewItems().filter((item) => statuses.includes(item.status));
+const detectionStages = ["received", "cloning", "validating", "extracting", "completed"];
+const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+function setSubmitStage(stage, status = "checking") {
+    state.submitStage = stage;
+    state.submitStatus = status;
+    syncSubmitUi();
 }
-
-function reviewBadge(status) {
-  const iconName = status === "approved" ? "badge-check" : status === "failed" || status === "rejected" ? "triangle-alert" : "clock-3";
-  return `<span class="review-status ${safe(status)}">${icon(iconName, reviewStatusLabel[status] || status)}</span>`;
+function stageAdvanceDelay(stage) {
+    if (prefersReducedMotion())
+        return 20;
+    if (stage === "extracting")
+        return 1050;
+    if (stage === "completed")
+        return 120;
+    return 180;
 }
-
-function securityScanBadge(scan) {
-  const status = scan?.status || "pending";
-  const label = status === "passed" ? "安全扫描通过" : status === "warnings" ? "安全扫描提醒" : status === "blocked" ? "安全扫描阻断" : "等待安全扫描";
-  const iconName = status === "passed" ? "shield-check" : status === "blocked" ? "shield-alert" : "shield-question";
-  return `<span class="security-badge ${safe(status)}">${icon(iconName, label)}</span>`;
+async function animateSubmitTo(stage, status) {
+    clearSubmitProgressTimers();
+    const currentIndex = Math.max(0, detectionStages.indexOf(state.submitStage));
+    const finalIndex = Math.max(currentIndex, detectionStages.indexOf(stage));
+    for (let index = currentIndex + 1; index <= finalIndex; index += 1) {
+        const nextStage = detectionStages[index];
+        setSubmitStage(nextStage, "checking");
+        await wait(stageAdvanceDelay(nextStage));
+    }
+    setSubmitStage(stage, status);
 }
-
-function statusBadge(type, value) {
-  return `<span class="status ${safe(value)}">${icon(
-    value === "verified" || value === "synced" ? "badge-check" : value === "failed" ? "triangle-alert" : "clock-3"
-  )}${safe(statusLabel[value] || value)}</span>`;
+function startSubmitProgress() {
+    clearSubmitProgressTimers();
+    setSubmitStage("received");
+    if (prefersReducedMotion()) {
+        setSubmitStage("extracting");
+        return;
+    }
+    submitProgressTimers = [
+        window.setTimeout(() => setSubmitStage("cloning"), 220),
+        window.setTimeout(() => setSubmitStage("validating"), 520),
+        window.setTimeout(() => setSubmitStage("extracting"), 760),
+    ];
 }
-
-function tagList(items) {
-  return (items || []).map((item) => `<span class="badge">${safe(item)}</span>`).join("");
+function clearSubmitProgressTimers() {
+    window.clearInterval(submitStageTimer);
+    submitProgressTimers.forEach((timer) => window.clearTimeout(timer));
+    submitProgressTimers = [];
 }
-
-function pluginInstallCommand(plugin) {
-  return `codex plugin add ${plugin.name}@${registry.marketplace.name || "codex-community"}`;
+async function submitRepository() {
+    if (state.submitLoading)
+        return;
+    const runId = ++submitRunId;
+    const repoUrl = state.submitUrl.trim();
+    const validationError = validateGithubUrl(repoUrl);
+    state.submitTouched = true;
+    state.submitError = "";
+    state.submitMessage = "";
+    if (validationError) {
+        state.submitError = validationError;
+        setSubmitStage("received", "failed");
+        syncSubmitError(validationError);
+        addLog("submit", validationError, "warning");
+        return;
+    }
+    state.submitLoading = true;
+    syncSubmitButton();
+    startSubmitProgress();
+    addLog("submit", `开始检测 ${normalizeRepositoryUrl(repoUrl)}`, "info");
+    try {
+        const response = await fetch("/api/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repositoryUrl: repoUrl }),
+        });
+        const payload = await response.json();
+        if (runId !== submitRunId)
+            return;
+        if (!response.ok)
+            throw new Error(payload.error || "检测失败，请稍后重试。");
+        await animateSubmitTo(payload.stage || "completed", "approved");
+        if (runId !== submitRunId)
+            return;
+        state.submitMessage = payload.message || "检测通过，插件已加入市场。";
+        skipNextFocusValueRestore = true;
+        state.submitUrl = "";
+        state.submitError = "";
+        state.submitTouched = false;
+        await loadMarket({ silent: true });
+        if (runId !== submitRunId)
+            return;
+        showToast("检测完成，市场已更新");
+        addLog("submit", state.submitMessage, "success");
+    }
+    catch (error) {
+        if (runId !== submitRunId)
+            return;
+        state.submitError = error instanceof Error ? error.message : "检测失败，请稍后重试。";
+        syncSubmitError(state.submitError);
+        await animateSubmitTo("validating", "failed");
+        if (runId !== submitRunId)
+            return;
+        await loadMarket({ silent: true });
+        if (runId !== submitRunId)
+            return;
+        syncSubmitError(state.submitError);
+        showToast("检测未通过");
+        addLog("submit", state.submitError, "error");
+    }
+    finally {
+        if (runId === submitRunId) {
+            clearSubmitProgressTimers();
+            state.submitLoading = false;
+            syncSubmitButton();
+            scheduleRender();
+        }
+    }
 }
-
-function pageShell(content, pageClass = "standard-page") {
-  return `
-    <div class="perspective-app">
-      ${header()}
-      <main id="main" class="perspective-page ${pageClass}">
-        ${content}
-      </main>
-    </div>
-  `;
+async function deletePlugin(pluginName) {
+    if (state.deleteLoading)
+        return;
+    const password = state.deletePassword.trim();
+    if (!password) {
+        state.deleteError = "请输入管理员密码。";
+        addLog("admin", "删除操作缺少管理员密码", "warning");
+        scheduleRender();
+        return;
+    }
+    state.deleteLoading = true;
+    state.deleteError = "";
+    state.deleteMessage = "";
+    addLog("admin", `请求删除插件 ${pluginName}`, "info");
+    scheduleRender();
+    try {
+        const response = await fetch(`/api/plugins/${encodeURIComponent(pluginName)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminPassword: password, reason: state.deleteReason }),
+        });
+        const payload = await response.json();
+        if (!response.ok)
+            throw new Error(payload.error || "删除失败，请稍后重试。");
+        state.deletePassword = "";
+        state.deleteReason = "";
+        state.deleteMessage = payload.message || "插件已从市场删除。";
+        await loadMarket({ silent: true });
+        showToast("插件已删除");
+        addLog("admin", state.deleteMessage, "success");
+        window.history.pushState({}, "", "/");
+        state.route = "/";
+    }
+    catch (error) {
+        state.deleteError = error instanceof Error ? error.message : "删除失败，请稍后重试。";
+        showToast("删除失败");
+        addLog("admin", state.deleteError, "error");
+    }
+    finally {
+        state.deleteLoading = false;
+        scheduleRender();
+    }
 }
-
-function pluginCopyActions(plugin, variant = "card") {
-  if (plugin.verifiedStatus !== "verified" || plugin.installPolicy === "REVIEW_ONLY") {
-    return `<span class="install-note">通过审核后开放单独安装</span>`;
-  }
-  const installCommand = pluginInstallCommand(plugin);
-  const buttonClass = variant === "perspective" ? "perspective-button secondary" : "button secondary";
-  return `
-    <button class="${buttonClass}" type="button" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="插件 GitHub 链接已复制" aria-label="复制 ${safe(plugin.displayName)} GitHub 仓库链接">${icon("github", "复制链接")}</button>
-    <button class="${buttonClass}" type="button" data-copy="${safe(installCommand)}" data-copy-label="插件安装命令已复制" aria-label="复制 ${safe(plugin.displayName)} CLI 安装命令">${icon("terminal", "复制安装")}</button>
-  `;
-}
-
-function liveStatusLabel() {
-  if (state.liveStatus === "live") return "实时同步";
-  if (state.liveStatus === "loading") return "同步中";
-  return "稍后重试";
-}
-
-function liveStatusIcon() {
-  if (state.liveStatus === "live") return "radio";
-  if (state.liveStatus === "loading") return "loader-circle";
-  return "wifi-off";
-}
-
 function header() {
-  const mode = themeMode();
-  const navItems = [
-    ["/", "store", "市场"],
-    ["/reviews", "list-checks", "进度"],
-    ["/submit", "git-pull-request", "提交"],
-    ["/install", "download", "安装"],
-    ["/about", "shield-check", "规则"],
-  ];
-  const active = topLevelRoute();
-  return `
+    const mode = themeMode();
+    const navItems = [
+        ["/", "store", "市场"],
+        ["/install", "book-open", "如何使用"],
+        ["/about", "shield-check", "检测规范"],
+    ];
+    const themeOptions = [
+        ["light", "sun", "浅色"],
+        ["system", "monitor", "跟随系统"],
+        ["dark", "moon", "深色"],
+    ];
+    const liveText = state.liveStatus === "live" ? "正常运行" : state.liveStatus === "loading" ? "同步中" : "离线";
+    return `
     <header class="topbar">
-      <div class="topbar-inner">
-        <a class="brand" href="/" data-link aria-label="返回插件市场首页">
-          <span class="brand-mark logo-mark"><img src="/assets/mwe-logo.png" alt="" width="28" height="28" /></span>
-          <span>MWE Codex插件共享市场</span>
-        </a>
-        <nav class="nav" aria-label="主导航">
-          ${navItems
-            .map(
-              ([href, iconName, label]) => `
-                <a class="nav-link" href="${href}" data-link ${
-                  active === href ? 'aria-current="page"' : ""
-                }>${icon(iconName, label)}</a>
-              `
-            )
-            .join("")}
-        </nav>
-        <div class="top-actions">
-          <span class="live-pill ${safe(state.liveStatus)}" title="${safe(state.liveError || (state.lastLiveSyncAt ? `最近同步：${formatShanghaiDateTime(state.lastLiveSyncAt)}` : "正在连接实时状态"))}">${icon(liveStatusIcon(), liveStatusLabel())}</span>
-          <div class="theme-switch" role="group" aria-label="主题模式">
-            ${[
-              ["system", "monitor", "跟随系统"],
-              ["light", "sun", "浅色"],
-              ["dark", "moon", "深色"],
-            ]
-              .map(
-                ([value, iconName, label]) => `
-                  <button class="theme-option" type="button" data-theme-mode="${value}" aria-pressed="${mode === value}" aria-label="${label}">${icon(iconName)}</button>
-                `
-              )
-              .join("")}
-          </div>
-          <a class="perspective-button secondary" href="/install" data-link>${icon("monitor", "Codex Desktop")}</a>
+      <a class="brand" href="/" data-link aria-label="返回首页">
+        <span class="brand-mark"><img src="/assets/mwe-logo.png" alt="" width="88" height="36" /></span>
+        <span>${productName}</span>
+      </a>
+      <nav class="nav" aria-label="主要视图">
+        ${navItems
+        .map(([href, iconName, label]) => {
+        const current = href === "/" ? state.route === "/" || state.route === "/share" : state.route.startsWith(href);
+        return `<a href="${href}" data-link class="nav-link" aria-current="${current ? "page" : "false"}">${icon(iconName, label)}</a>`;
+    })
+        .join("")}
+      </nav>
+      <div class="top-actions">
+        <span class="live-pill ${safe(state.liveStatus)}" title="${safe(state.liveError || "网页实时状态")}">
+          <span class="status-dot"></span><span>服务状态：</span><strong>${safe(liveText)}</strong>
+        </span>
+        <span class="time-pill">${icon("clock")}<span data-beijing-time>${safe(beijingTime())}</span></span>
+        <div class="theme-switch" role="group" aria-label="主题">
+          ${themeOptions
+        .map(([value, iconName, label]) => `<button class="theme-option" data-action="theme" data-theme-mode="${value}" aria-label="${label}" aria-pressed="${mode === value}" type="button">${icon(iconName)}</button>`)
+        .join("")}
         </div>
       </div>
     </header>
   `;
 }
-
-function topLevelRoute() {
-  if (state.route.startsWith("/plugins/") || state.route.startsWith("/perspective")) return "/";
-  return ["/reviews", "/submit", "/install", "/about"].find((route) => state.route.startsWith(route)) || "/";
+function stepState(stage, status) {
+    const order = ["received", "cloning", "validating", "extracting", "completed"];
+    const current = state.submitStage === "idle" ? -1 : order.indexOf(state.submitStage);
+    const target = order.indexOf(stage);
+    if (status === "failed" && target === Math.max(current, 0))
+        return "failed";
+    if (status === "approved" && target === order.length - 1)
+        return state.market.checks[0]?.securityScan?.status === "warnings" ? "warning" : "passed";
+    if (target < current || (status === "approved" && target <= current))
+        return "passed";
+    if (target === current)
+        return "active";
+    return "pending";
 }
-
-function emptyState() {
-  return `
-    <div class="empty-state">
-      <div>
-        <span class="brand-mark" style="margin:0 auto;">${icon("search-x")}</span>
-        <h2>没有找到插件</h2>
-        <p class="lede">试试清空筛选、切换分类，或者把你希望收录的 GitHub 仓库提交给维护者。</p>
-        <div class="form-actions" style="justify-content:center;">
-          <button class="perspective-button secondary" type="button" data-clear-filters>${icon("rotate-ccw", "清空筛选")}</button>
-          <a class="perspective-button primary" href="/submit" data-link>${icon("plus", "提交插件")}</a>
-        </div>
-      </div>
+function progressPercent() {
+    if (state.submitStage === "idle")
+        return 0;
+    const index = Math.max(0, detectionStages.indexOf(state.submitStage));
+    return Math.round((index / (detectionStages.length - 1)) * 100);
+}
+function stepNodeContent(index, status) {
+    if (status === "passed" || status === "warning")
+        return icon("check");
+    if (status === "failed")
+        return icon("x");
+    return String(index + 1);
+}
+function syncSubmitError(message = state.submitError) {
+    const errorNode = document.querySelector("#repo-error");
+    if (errorNode)
+        errorNode.textContent = message;
+    const input = document.querySelector("#repo-url");
+    if (input)
+        input.setAttribute("aria-invalid", String(Boolean(message)));
+}
+function progressSteps() {
+    return [
+        ["received", "link", "接收链接", "验证链接格式"],
+        ["cloning", "cloud-download", "拉取仓库", "读取仓库内容"],
+        ["validating", "shield-check", "检测规范", "验证插件规范"],
+        ["extracting", "list-filter", "提取信息", "生成插件信息"],
+        ["completed", "store", "完成", "加入市场展示"],
+    ];
+}
+function syncProgressDom() {
+    const rail = document.querySelector(".progress-rail");
+    if (!rail)
+        return;
+    rail.style.setProperty("--progress", `${progressPercent()}%`);
+    rail.dataset.stage = state.submitStage;
+    rail.dataset.status = state.submitStatus;
+    progressSteps().forEach(([stage], index) => {
+        const step = rail.querySelector(`[data-step="${stage}"]`);
+        if (!step)
+            return;
+        const status = stepState(stage, state.submitStatus);
+        step.className = `progress-step ${status}`;
+        const node = step.querySelector(".step-node");
+        if (node)
+            node.innerHTML = stepNodeContent(index, status);
+    });
+    window.lucide?.createIcons({ attrs: { "stroke-width": 2 } });
+}
+function syncSubmitButton() {
+    const button = document.querySelector('[data-action="submit-check"]');
+    if (!button)
+        return;
+    button.disabled = state.submitLoading;
+    button.innerHTML = icon(state.submitLoading ? "loader-circle" : "sparkles", state.submitLoading ? "检测中" : "开始检测");
+    window.lucide?.createIcons({ attrs: { "stroke-width": 2 } });
+}
+function syncSubmitUi() {
+    syncProgressDom();
+    syncSubmitButton();
+}
+function progressRail() {
+    return `
+    <div class="progress-rail" aria-label="检测进度" style="--progress: ${progressPercent()}%" data-stage="${safe(state.submitStage)}" data-status="${safe(state.submitStatus)}">
+      <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-particles"></span></span>
+      ${progressSteps()
+        .map(([stage, iconName, title, detail], index) => {
+        const status = stepState(stage, state.submitStatus);
+        return `
+            <div class="progress-step ${status}" data-step="${safe(stage)}">
+              <span class="step-visual" aria-hidden="true">${icon(iconName)}</span>
+              <span class="step-node">${stepNodeContent(index, status)}</span>
+              <strong>${safe(title)}</strong>
+              <p>${safe(detail)}</p>
+            </div>
+          `;
+    })
+        .join("")}
     </div>
   `;
 }
-
-function perspectivePage() {
-  const plugins = filteredPlugins();
-  const verifiedCount = registry.plugins.filter((plugin) => plugin.verifiedStatus === "verified").length;
-  const categoriesCount = categories().length - 1;
-  return `
-    <div class="perspective-app">
-      ${header()}
-      <main id="main" class="perspective-page" aria-label="Perspective 版插件市场">
-        <section class="perspective-hero" aria-labelledby="perspective-title">
-          <div class="perspective-atmosphere" aria-hidden="true"></div>
-          <div class="perspective-stage">
-            <div class="perspective-panel">
-              <div class="perspective-copy">
-                <span class="perspective-kicker">${icon("sparkles", "Perspective Marketplace")}</span>
-                <h1 id="perspective-title">MWE Codex插件共享市场</h1>
-                <p>汇集社区分享的 Codex 插件，支持按能力搜索、查看同步与审核状态，并快速复制安装命令添加到 Codex。</p>
-                <div class="perspective-actions">
-                  <a class="perspective-button primary" href="/submit" data-link>${icon("git-pull-request", "提交插件")}</a>
-                  <button class="perspective-button secondary" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制">${icon("monitor", "复制 Desktop 链接")}</button>
-                  <button class="perspective-button secondary" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制">${icon("terminal", "复制 CLI 命令")}</button>
-                </div>
-              </div>
-
-              <div class="perspective-console" aria-label="市场概览控制台">
-                <div class="perspective-console-head">
-                  <span>${icon("clock-3", "Asia/Shanghai")}</span>
-                  <strong data-shanghai-clock aria-label="Asia/Shanghai 当前时间">${formatShanghaiDateTime(new Date())}</strong>
-                </div>
-                <div class="perspective-orbit-grid">
-                  <div><strong>${registry.plugins.length}</strong><span>插件</span></div>
-                  <div><strong>${verifiedCount}</strong><span>已验证</span></div>
-                  <div><strong>${categoriesCount}</strong><span>分类</span></div>
-                </div>
-                <div class="perspective-command-list" aria-label="Marketplace 集成方式">
-                  <div class="perspective-command-row">
-                    <span>${icon("monitor", "Codex Desktop")}</span>
-                    <code>${safe(MARKETPLACE_REPOSITORY_URL)}</code>
-                    <button class="perspective-copy-mini" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制" aria-label="复制 Marketplace 链接">${icon("copy")}</button>
-                  </div>
-                  <div class="perspective-command-row">
-                    <span>${icon("terminal", "Codex CLI")}</span>
-                    <code>${safe(MARKETPLACE_COMMAND)}</code>
-                    <button class="perspective-copy-mini" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制" aria-label="复制 Marketplace 命令">${icon("copy")}</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="perspective-workspace" aria-label="Perspective 插件发现工作台">
-          <aside class="perspective-rail" aria-label="插件市场流程">
-            <div class="perspective-rail-card">
-              <span class="perspective-kicker">Marketplace Guide</span>
-              <h2>插件索引</h2>
-              <p>按分类浏览社区插件，查看审核状态，并选择 Codex Desktop 链接或 Codex CLI 命令完成集成。</p>
-            </div>
-            ${perspectiveStep("search", "发现", "搜索能力和场景")}
-            ${perspectiveStep("badge-check", "验证", "区分审核状态")}
-            ${perspectiveStep("monitor", "Desktop", "复制 Marketplace 仓库链接")}
-            ${perspectiveStep("terminal", "CLI", "复制 marketplace add 命令")}
-            <a class="perspective-button secondary wide" href="/install" data-link>${icon("download", "查看安装指南")}</a>
-          </aside>
-
-          <div class="perspective-directory">
-            <div class="perspective-filter glass-card">
-              <div class="field perspective-search-field">
-                <label for="plugin-search">搜索插件</label>
-                <div class="input-shell">
-                  ${icon("search")}
-                  <input id="plugin-search" value="${safe(state.query)}" placeholder="搜索 GitHub、设计、数据、文档..." autocomplete="off" />
-                </div>
-              </div>
-              <button class="perspective-button secondary" type="button" data-verified-toggle aria-pressed="${state.showOnlyVerified}">
-                ${icon("badge-check", state.showOnlyVerified ? "显示全部" : "仅看已验证")}
-              </button>
-            </div>
-
-            <div class="perspective-tabs" role="tablist" aria-label="插件分类">
-              ${categories()
-                .map(
-                  (category) => `
-                    <button class="perspective-tab" type="button" role="tab" data-category="${safe(category)}" aria-selected="${
-                      state.category === category
-                    }">${safe(category)}</button>
-                  `
-                )
-                .join("")}
-            </div>
-
-            <div class="perspective-section-head">
-              <div>
-                <span class="perspective-kicker">Registry Objects</span>
-                <h2>${plugins.length ? "插件市场" : "没有匹配结果"}</h2>
-              </div>
-              <p>${plugins.length ? `当前视图显示 ${plugins.length} 个插件。` : "清空筛选或提交一个新的 GitHub 仓库。"}</p>
-            </div>
-
-            ${
-              plugins.length
-                ? `<div class="perspective-grid">${plugins.map((plugin, index) => perspectivePluginCard(plugin, index)).join("")}</div>`
-                : `<div class="glass-card perspective-empty">${emptyState()}</div>`
-            }
-          </div>
-        </section>
-      </main>
-    </div>
+function submitPanel() {
+    const error = state.submitTouched ? state.submitError || validateGithubUrl(state.submitUrl) : state.submitError;
+    return `
+    <section class="submit-panel glass-panel" aria-labelledby="submit-title">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="panel-head">
+        <span class="small-label">${icon("git-pull-request")} 提交插件</span>
+        <h1 id="submit-title">提交插件仓库，自动检测并加入市场</h1>
+        <p>粘贴 GitHub 仓库链接，系统将立即检测是否为有效的 Codex 插件。</p>
+      </div>
+      <form class="share-form" data-share-form novalidate>
+        <label for="repo-url">GitHub 仓库链接 <span aria-hidden="true">*</span></label>
+        <div class="url-field">
+          ${icon("git-branch")}
+          <input id="repo-url" name="repositoryUrl" type="url" autocomplete="url" placeholder="https://github.com/owner/repository" value="${safe(state.submitUrl)}" aria-invalid="${Boolean(error)}" aria-describedby="repo-help repo-error" />
+        </div>
+        <p id="repo-help" class="helper">请粘贴公开的代码仓库链接，系统将自动分析插件规范与清单文件。</p>
+        <p id="repo-error" class="error-text" role="alert">${safe(error)}</p>
+        <div class="form-actions">
+          <button class="primary-button" data-action="submit-check" type="submit" ${state.submitLoading ? "disabled" : ""}>${icon(state.submitLoading ? "loader-circle" : "sparkles", state.submitLoading ? "检测中" : "开始检测")}</button>
+          <button class="secondary-button" data-action="clear-submit" type="button">${icon("trash-2", "清空")}</button>
+        </div>
+      </form>
+      ${state.submitMessage ? `<div class="success-box">${icon("badge-check")}<span>${safe(state.submitMessage)}</span></div>` : ""}
+      ${progressRail()}
+    </section>
   `;
 }
-
-function reviewCard(item) {
-  const scan = item.securityScan;
-  const issueLabel = item.issueUrl ? `#${item.issueUrl.split("/").pop()}` : "追踪";
-  const needsAdminAction = item.status === "failed" || item.status === "rejected" || scan?.status === "blocked";
-  const adminActive = state.adminReviewTarget === item.id;
-  const adminError = adminActive ? state.adminReviewError : "";
-  const adminSuccessUrl = adminActive ? state.adminReviewSuccessUrl : "";
-  const adminSuccessMessage = adminActive ? state.adminReviewSuccessMessage : "";
-  const passwordId = `admin-password-${String(item.id || item.slug).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-  return `
-    <article class="review-card glass-card">
-      <div class="review-card-head">
-        <div>
-          <h3>${safe(item.displayName || item.repo || item.slug)}</h3>
-          <p>${safe(item.owner || "community")} / ${safe(item.repo || item.slug)}</p>
-        </div>
-        ${reviewBadge(item.status)}
+function statusBadge(plugin) {
+    const scan = plugin.securityScan?.status || "pending";
+    const label = scan === "warnings" ? "有提示" : scan === "blocked" ? "需复核" : scan === "passed" ? "已通过" : "待检测";
+    const iconName = scan === "warnings" ? "shield-alert" : scan === "blocked" ? "shield-x" : "badge-check";
+    return `<span class="status-badge ${safe(scan)}">${icon(iconName, label)}</span>`;
+}
+function pluginRow(plugin) {
+    return `
+    <article class="plugin-row glass-panel">
+      <a class="plugin-main" href="/plugins/${encodeURIComponent(plugin.name)}" data-link>
+        <img class="avatar" src="${safe(plugin.avatarUrl || `https://github.com/${plugin.author}.png?size=96`)}" alt="${safe(plugin.author)} 头像" width="56" height="56" loading="lazy" />
+        <span>
+          <span class="plugin-title">${safe(plugin.displayName)} ${statusBadge(plugin)}</span>
+          <small>by ${safe(plugin.author)}</small>
+          <span class="plugin-desc">${safe(plugin.description)}</span>
+          <span class="chip-row">${(plugin.capabilities || plugin.tags || []).slice(0, 3).map((item) => `<span class="chip">${safe(item)}</span>`).join("")}</span>
+        </span>
+      </a>
+      <div class="plugin-actions">
+        <button class="secondary-button" type="button" data-action="copy-repo" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
+        <button class="secondary-button" type="button" data-action="copy-cli" data-copy="${safe(cliCommand(plugin.repositoryUrl))}" data-copy-label="CLI 安装命令已复制">${icon("terminal", "复制 CLI 命令")}</button>
       </div>
-      <a class="review-repo" href="${safe(item.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", item.repositoryUrl || "GitHub 仓库")}</a>
-      <div class="review-meta">
-        <span>${icon("calendar-clock", formatShanghaiDateTime(item.updatedAt || item.submittedAt))}</span>
-        ${securityScanBadge(scan)}
-      </div>
-      ${item.reason ? `<p class="review-reason">${safe(item.reason)}</p>` : ""}
-      ${scan?.findings?.length ? `<ul class="review-findings">${scan.findings.slice(0, 3).map((finding) => `<li><strong>${safe(finding.severity)}</strong> ${safe(finding.path)} · ${safe(finding.description)}</li>`).join("")}</ul>` : ""}
-      <div class="form-actions">
-        ${item.issueUrl ? `<a class="perspective-button secondary" href="${safe(item.issueUrl)}" target="_blank" rel="noreferrer">${icon("external-link", issueLabel)}</a>` : ""}
-        ${item.pluginName ? `<a class="perspective-button primary" href="/plugins/${safe(item.pluginName)}" data-link>${icon("arrow-right", "查看插件")}</a>` : ""}
-      </div>
-      ${needsAdminAction ? `
-        <form class="admin-review-form" data-admin-review-form novalidate>
-          <input type="hidden" name="submissionId" value="${safe(item.id)}" />
-          <input type="hidden" name="repositoryUrl" value="${safe(item.repositoryUrl)}" />
-          <label for="${safe(passwordId)}">管理员密码</label>
-          <div class="admin-action-row">
-            <input id="${safe(passwordId)}" name="adminPassword" type="password" autocomplete="current-password" placeholder="输入管理员密码" aria-describedby="${safe(passwordId)}-help ${safe(passwordId)}-error" />
-            <button class="perspective-button secondary" type="submit" name="action" value="manual-approve" ${state.adminReviewLoading && adminActive ? "disabled" : ""}>${icon(state.adminReviewLoading && adminActive ? "loader-circle" : "shield-check", "手动通过")}</button>
-            <button class="perspective-button secondary danger" type="submit" name="action" value="remove-submission" ${state.adminReviewLoading && adminActive ? "disabled" : ""}>${icon("trash-2", "删除请求")}</button>
-          </div>
-          <p id="${safe(passwordId)}-help" class="helper">自动扫描未通过时，管理员可提交手动通过或删除上传请求任务。</p>
-          ${adminError ? `<p id="${safe(passwordId)}-error" class="error-text" role="alert">${safe(adminError)}</p>` : `<p id="${safe(passwordId)}-error" class="error-text" role="alert"></p>`}
-          ${adminSuccessUrl ? `<div class="success-box"><strong>${safe(adminSuccessMessage || "管理员任务已提交")}</strong><a class="perspective-button secondary" href="${safe(adminSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", "查看任务")}</a></div>` : ""}
-        </form>
-      ` : ""}
     </article>
   `;
 }
-
-function reviewColumn(title, statuses, iconName) {
-  const items = reviewColumnItems(statuses);
-  return `
-    <section class="review-column">
-      <div class="review-column-head">
-        <span>${icon(iconName)}</span>
+function marketPanel() {
+    const plugins = filteredPlugins();
+    return `
+    <section class="market-panel glass-panel" aria-labelledby="market-title">
+      <div class="panel-title-row">
         <div>
-          <h2>${title}</h2>
-          <p>${items.length} 条记录</p>
+          <h2 id="market-title">插件市场 <span class="soft-badge">实时更新</span></h2>
+          <p>已检测通过的插件将实时展示在这里。</p>
+        </div>
+        <div class="market-count">
+          <span>当前显示 ${plugins.length} / 共 ${state.market.plugins.length} 个插件</span>
+          <button class="secondary-button compact" type="button" data-action="refresh-market">${icon("refresh-cw", "刷新")}</button>
         </div>
       </div>
-      <div class="review-column-list">
-        ${items.length ? items.map(reviewCard).join("") : `<div class="review-empty">暂无记录</div>`}
+      <div class="filter-bar">
+        <label class="search-box" for="plugin-search">
+          ${icon("search")}
+          <input id="plugin-search" type="search" placeholder="搜索插件、作者、能力..." value="${safe(state.query)}" />
+        </label>
+        <div class="tabs" role="tablist" aria-label="分类">
+          ${categories()
+        .map((category) => `<button class="tab" data-action="category" data-category="${safe(category)}" aria-pressed="${state.category === category}" type="button">${safe(category)}</button>`)
+        .join("")}
+        </div>
+        <button class="secondary-button compact" data-action="warning-toggle" data-warning-toggle type="button" aria-pressed="${state.onlyWarnings}">${icon("shield-alert", state.onlyWarnings ? "显示全部" : "仅看需复核")}</button>
+      </div>
+      <div class="market-list">
+        ${plugins.length ? plugins.map(pluginRow).join("") : `<div class="empty-state">${icon("package-search")}<h3>还没有匹配插件</h3><p>换个分类或提交一个新的 Codex 插件仓库。</p></div>`}
       </div>
     </section>
   `;
 }
-
-function reviewsPage() {
-  const total = reviewItems().length;
-  return `
-    <div class="perspective-app">
-      ${header()}
-      <main id="main" class="perspective-page review-page" aria-label="提交和审核进度">
-        <section class="review-hero glass-card">
-          <span class="perspective-kicker">Review Board</span>
-          <div>
-            <h1>提交和审核进度</h1>
-            <p>从网页提交、GitHub issue、自动审核、静态安全扫描到 Marketplace 同步，所有状态集中显示在这里。</p>
-          </div>
-          <button class="perspective-button secondary" type="button" data-refresh-reviews ${state.reviewsLoading ? "disabled" : ""}>${icon(state.reviewsLoading ? "loader-circle" : "refresh-cw", state.reviewsLoading ? "刷新中" : "刷新进度")}</button>
-        </section>
-        ${state.reviewsError ? `<div class="error-box review-warning" role="status">${safe(state.reviewsError)}</div>` : ""}
-        <section class="review-summary" aria-label="审核概况">
-          <div class="glass-card"><strong>${total}</strong><span>提交记录</span></div>
-          <div class="glass-card"><strong>${reviewColumnItems(["approved"]).length}</strong><span>已同步</span></div>
-          <div class="glass-card"><strong>${reviewColumnItems(["reviewing"]).length}</strong><span>审核中</span></div>
-          <div class="glass-card"><strong>${reviewColumnItems(["failed", "rejected"]).length}</strong><span>需处理</span></div>
-        </section>
-        <section class="review-board" aria-label="审核看板">
-          ${reviewColumn("待审核", ["reviewing"], "clock-3")}
-          ${reviewColumn("需处理", ["failed", "rejected", "closed"], "triangle-alert")}
-          ${reviewColumn("已同步", ["approved"], "badge-check")}
-        </section>
-      </main>
-    </div>
-  `;
-}
-
-function perspectiveStep(iconName, title, text) {
-  return `
-    <div class="perspective-step">
+function checkRecord(item) {
+    const statusText = item.status === "approved" ? "检测通过" : item.status === "failed" ? "检测失败" : "检测中";
+    const iconName = item.status === "approved" ? "circle-check" : item.status === "failed" ? "circle-x" : "loader-circle";
+    return `
+    <article class="check-record ${safe(item.status)}">
       <span>${icon(iconName)}</span>
-      <div>
-        <strong>${title}</strong>
-        <p>${text}</p>
-      </div>
-    </div>
-  `;
-}
-
-function perspectivePluginCard(plugin, index = 0) {
-  return `
-    <article class="perspective-plugin-card glass-card depth-${(index % 4) + 1}">
-      <div class="perspective-card-top">
-        <img class="avatar" src="${safe(plugin.avatarUrl)}" alt="${safe(plugin.author)} 头像" loading="lazy" width="48" height="48" />
-        <div>
-          <h3>${safe(plugin.displayName)}</h3>
-          <p>${safe(plugin.author)} · ${safe(plugin.version)}</p>
-        </div>
-        ${statusBadge("verified", plugin.verifiedStatus)}
-      </div>
-      <div class="perspective-card-security">${securityScanBadge(plugin.securityScan)}</div>
-      <p>${safe(plugin.description)}</p>
-      <div class="chip-row">${tagList(plugin.tags)}</div>
-      <div class="perspective-card-meta">
-        ${statusBadge("sync", plugin.syncStatus)}
-        <span>${safe(plugin.category)}</span>
-        <span>${safe(plugin.releaseTag)}</span>
-      </div>
-      <div class="card-actions">
-        <a class="perspective-button primary" href="/plugins/${safe(plugin.name)}" data-link>${icon("arrow-right", "查看")}</a>
-        <a class="perspective-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("external-link", "打开仓库")}</a>
-        ${pluginCopyActions(plugin, "perspective")}
-      </div>
+      <strong>${safe(item.repositoryUrl)}</strong>
+      <span class="record-status">${safe(statusText)}</span>
+      <small>${safe(item.reason || formatTime(item.updatedAt || item.submittedAt))}</small>
+      <a href="${safe(item.repositoryUrl)}" target="_blank" rel="noreferrer" aria-label="打开仓库">${icon("chevron-right")}</a>
     </article>
   `;
 }
-
-function timelineItem(iconName, title, text) {
-  return `
-    <div class="timeline-item">
-      <span class="timeline-icon">${icon(iconName)}</span>
-      <div>
-        <strong>${title}</strong>
-        <p class="helper">${text}</p>
-      </div>
-    </div>
+function resultGuide() {
+    return `
+    <section class="info-card glass-panel">
+      <h2>检测结果说明</h2>
+      <div class="result-line success">${icon("circle-check")}<div><strong>检测通过</strong><p>仓库包含有效的 Codex 插件清单，已加入市场。</p></div></div>
+      <div class="result-line warning">${icon("triangle-alert")}<div><strong>检测失败（可修复）</strong><p>插件清单不完整或部分字段缺失，请完善后重新提交。</p></div></div>
+      <div class="result-line danger">${icon("circle-x")}<div><strong>检测失败（不可用）</strong><p>未找到插件清单或仓库不可访问，无法识别为插件。</p></div></div>
+    </section>
   `;
 }
-
+function howToCard() {
+    return `
+    <section class="info-card howto-card glass-panel">
+      <h2>如何使用？</h2>
+      <ol class="howto-list">
+        <li><span>1</span><div><strong>粘贴 GitHub 仓库链接</strong><p>支持公开的 Codex 插件仓库。</p></div></li>
+        <li><span>2</span><div><strong>自动检测与验证</strong><p>系统检查插件规范和必需文件。</p></div></li>
+        <li><span>3</span><div><strong>加入市场展示</strong><p>通过后插件将实时展示给所有用户。</p></div></li>
+      </ol>
+      <a class="secondary-button" href="/about" data-link>${icon("arrow-right", "了解检测规范")}</a>
+    </section>
+  `;
+}
+function recentChecks() {
+    return `
+    <section class="recent-panel glass-panel" aria-labelledby="recent-title">
+      <div class="panel-title-row">
+        <h2 id="recent-title">最近检测记录</h2>
+        <a class="ghost-link" href="/reviews" data-link>查看全部记录 ${icon("arrow-right")}</a>
+      </div>
+      <div class="timeline">
+        ${state.market.checks.length ? state.market.checks.slice(0, 8).map(checkRecord).join("") : `<p class="helper">暂无检测记录。</p>`}
+      </div>
+    </section>
+  `;
+}
+function logStream() {
+    return "";
+}
+function homePage() {
+    return `
+    ${header()}
+    <main id="main" class="page dashboard-page">
+      <div class="dashboard-grid">
+        ${submitPanel()}
+        ${marketPanel()}
+        ${recentChecks()}
+        <div class="side-stack">
+          ${resultGuide()}
+          ${howToCard()}
+        </div>
+      </div>
+    </main>
+  `;
+}
+function staticPage(kind) {
+    const checks = state.market.checks;
+    const title = kind === "install" ? "如何使用 Marketplace" : kind === "about" ? "检测规范" : "关于我们";
+    const body = kind === "install"
+        ? `
+        <div class="command-grid">
+          <div class="command-card">${icon("monitor")}<strong>Codex Desktop</strong><code>${marketplaceUrl}</code><button class="secondary-button" data-copy="${marketplaceUrl}" data-copy-label="Marketplace 链接已复制" type="button">${icon("copy", "复制链接")}</button></div>
+          <div class="command-card">${icon("terminal")}<strong>Codex CLI</strong><code>${cliCommand(marketplaceUrl)}</code><button class="secondary-button" data-copy="${cliCommand(marketplaceUrl)}" data-copy-label="CLI 命令已复制" type="button">${icon("copy", "复制命令")}</button></div>
+        </div>`
+        : kind === "about"
+            ? `
+          <div class="rule-grid">
+            ${["公开 GitHub 仓库", "能识别 Codex 插件入口", "非关键字段降级为提示", "危险安装脚本需要复核"].map((item) => `<div class="rule-item">${icon("shield-check")}<strong>${item}</strong></div>`).join("")}
+          </div>`
+            : `
+          <div class="timeline">${checks.length ? checks.map(checkRecord).join("") : `<p class="helper">暂无检测记录。</p>`}</div>`;
+    return `
+    ${header()}
+    <main id="main" class="page content-page">
+      <section class="content-card glass-panel">
+        <a href="/" data-link class="secondary-button compact">${icon("arrow-left", "返回市场")}</a>
+        <h1>${safe(title)}</h1>
+        <p>${kind === "reviews" ? "这里汇总最近的插件检测与同步状态。" : "本页面沿用 Perspective 玻璃态系统，保持和首页一致的视觉语言。"}</p>
+        ${body}
+      </section>
+    </main>
+  `;
+}
 function detailPage(name) {
-  const plugin = registry.plugins.find((item) => item.name === name);
-  if (!plugin) return notFoundPage();
-  const installCommand = pluginInstallCommand(plugin);
-  const removalReason = document.querySelector("#removal-reason")?.value || "";
-  const removalActive = state.removalPluginName === plugin.name;
-  const removalError = removalActive ? state.removalError : "";
-  const removalSuccessUrl = removalActive ? state.removalSuccessUrl : "";
-  return `
-    <div class="perspective-app">
+    const plugin = state.market.plugins.find((item) => item.name === name);
+    if (!plugin) {
+        return `
       ${header()}
-      <main id="main" class="perspective-page plugin-detail-page">
-        <div class="detail-layout">
-          <article class="detail-card glass-card plugin-detail-card">
-            <a class="perspective-button secondary detail-back" href="/" data-link>${icon("arrow-left", "返回插件目录")}</a>
-          <div class="detail-header detail-section">
-            <img class="avatar" src="${safe(plugin.avatarUrl)}" alt="${safe(plugin.author)} 头像" loading="lazy" width="64" height="64" />
-            <div>
-              <span class="eyebrow">${safe(plugin.category)}</span>
-              <h1>${safe(plugin.displayName)}</h1>
-              <p class="lede">${safe(plugin.description)}</p>
-            </div>
-          </div>
-
-          <section class="detail-section">
-            <h2>插件说明</h2>
-            <p>${safe(plugin.longDescription)}</p>
-            <div class="chip-row">${tagList(plugin.tags)}${tagList(plugin.capabilities)}</div>
-          </section>
-
-          <section class="detail-section">
-            <h2>版本与同步</h2>
-            <ul class="detail-list">
-              <li><span>当前版本</span><strong class="mono">${safe(plugin.version)}</strong></li>
-              <li><span>Release/tag</span><strong class="mono">${safe(plugin.releaseTag)}</strong></li>
-              <li><span>审核状态</span>${statusBadge("verified", plugin.verifiedStatus)}</li>
-              <li><span>安全扫描</span>${securityScanBadge(plugin.securityScan)}</li>
-              <li><span>同步状态</span>${statusBadge("sync", plugin.syncStatus)}</li>
-              <li><span>最近同步</span><strong>${formatDate(plugin.syncTimestamp)}</strong></li>
-            </ul>
-          </section>
-
-          <section class="detail-section notice-box">
-            <h2>安装前提示</h2>
-            <p>社区插件会在合并前经过 manifest、Release 和资产路径校验。安装前仍建议阅读仓库源码、权限说明和 README。</p>
-          </section>
-        </article>
-
-          <aside class="sidebar">
-            <section class="panel glass-card">
-            <h2>安装入口</h2>
-            <p class="helper">可以同步整个 Marketplace，也可以只复制当前插件的仓库链接或 CLI 安装命令。</p>
-            <div class="code-box">
-              <code>${safe(MARKETPLACE_REPOSITORY_URL)}</code>
-              <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制" aria-label="复制 Marketplace 链接">${icon("monitor")}</button>
-            </div>
-            <div class="code-box">
-              <code>${safe(MARKETPLACE_COMMAND)}</code>
-              <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制" aria-label="复制 Marketplace 命令">${icon("terminal")}</button>
-            </div>
-            <div class="install-choice">
-              <span>${icon("github", "插件 GitHub")}</span>
-              <div class="code-box">
-                <code>${safe(plugin.repositoryUrl)}</code>
-                <button class="copy-button" type="button" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="插件 GitHub 链接已复制" aria-label="复制插件 GitHub 仓库链接">${icon("copy")}</button>
-              </div>
-            </div>
-            <div class="install-choice">
-              <span>${icon("terminal", "单插件 CLI")}</span>
-              <div class="code-box">
-                <code>${safe(installCommand)}</code>
-                <button class="copy-button" type="button" data-copy="${safe(installCommand)}" data-copy-label="插件安装命令已复制" aria-label="复制插件安装命令">${icon("copy")}</button>
-              </div>
-            </div>
-          </section>
-
-            <section class="panel glass-card">
-              <h2>来源</h2>
-            <div class="form-actions">
-              <a class="perspective-button secondary" href="${safe(plugin.repositoryUrl)}" target="_blank" rel="noreferrer">${icon("github", "打开 GitHub")}</a>
-              <a class="perspective-button secondary" href="/submit" data-link>${icon("git-pull-request", "贡献更新")}</a>
-            </div>
-          </section>
-
-            <section class="panel glass-card removal-panel">
-              <h2>删除请求</h2>
-              <p class="helper">仅 Marketplace 管理员可以删除收录记录。密码只在服务端校验，不会写入 GitHub issue。</p>
-              <form class="removal-form" data-removal-form novalidate>
-                <input type="hidden" name="pluginName" value="${safe(plugin.name)}" />
-                <input type="hidden" name="repositoryUrl" value="${safe(plugin.repositoryUrl)}" />
-                <div class="field">
-                  <label for="removal-admin-password">管理员密码</label>
-                  <input id="removal-admin-password" name="adminPassword" type="password" placeholder="输入管理员密码" autocomplete="current-password" aria-describedby="removal-help removal-error" />
-                  <p id="removal-help" class="helper">密码由容器环境变量 MARKETPLACE_ADMIN_PASSWORD 设置，只用于本次服务端校验。</p>
-                  <p id="removal-error" class="error-text" role="alert">${safe(removalError)}</p>
-                </div>
-                <div class="field">
-                  <label for="removal-reason">删除原因</label>
-                  <textarea id="removal-reason" name="reason" placeholder="例如：仓库已停止维护，希望从 Marketplace 下架。">${safe(removalReason)}</textarea>
-                </div>
-                <button class="perspective-button secondary" type="submit" ${state.removalLoading && removalActive ? "disabled" : ""}>${icon(state.removalLoading && removalActive ? "loader-circle" : "trash-2", state.removalLoading && removalActive ? "正在提交..." : "申请删除")}</button>
-              </form>
-              ${removalSuccessUrl ? `<div class="success-box detail-section"><strong>${safe(state.removalSuccessMessage || "已提交删除请求")}</strong><p>GitHub Action 会根据管理员授权自动移除插件并同步 Marketplace。</p><a class="perspective-button secondary" href="${safe(removalSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.removalIssueNumber ? `查看 #${safe(state.removalIssueNumber)}` : "查看删除进度")}</a></div>` : ""}
-            </section>
-          </aside>
+      <main id="main" class="page content-page">
+        <div class="empty-state glass-panel">
+          ${icon("package-x")}
+          <h1>没有找到这个插件</h1>
+          <a href="/" data-link class="primary-button">${icon("arrow-left", "返回市场")}</a>
         </div>
       </main>
-    </div>
+    `;
+    }
+    return `
+    ${header()}
+    <main id="main" class="page content-page detail-page">
+      <article class="detail-card glass-panel">
+        <a href="/" data-link class="secondary-button compact">${icon("arrow-left", "返回插件目录")}</a>
+        <div class="plugin-head large">
+          <img class="avatar large" src="${safe(plugin.avatarUrl || `https://github.com/${plugin.author}.png?size=96`)}" alt="${safe(plugin.author)} 头像" width="76" height="76" />
+          <div>
+            <p class="small-label">${safe(plugin.category)}</p>
+            <h1>${safe(plugin.displayName)}</h1>
+            <p>${safe(plugin.description)}</p>
+          </div>
+          ${statusBadge(plugin)}
+        </div>
+        <div class="detail-actions">
+          <button class="primary-button" type="button" data-copy="${safe(plugin.repositoryUrl)}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
+          <button class="secondary-button" type="button" data-copy="${safe(cliCommand(plugin.repositoryUrl))}" data-copy-label="CLI 安装命令已复制">${icon("terminal", "复制 CLI 命令")}</button>
+        </div>
+        <section>
+          <h2>插件说明</h2>
+          <p>${safe(plugin.longDescription || plugin.description)}</p>
+        </section>
+        <section>
+          <h2>能力标签</h2>
+          <div class="chip-row">${[...(plugin.tags || []), ...(plugin.capabilities || [])].map((item) => `<span class="chip">${safe(item)}</span>`).join("")}</div>
+        </section>
+        <form class="admin-delete glass-panel" data-delete-form="${safe(plugin.name)}" novalidate>
+          <div>
+            <p class="small-label">Marketplace Admin</p>
+            <h2>从市场删除这个插件</h2>
+            <p class="helper">输入管理员密码后会直接从当前市场移除。密码只发送到服务端验证，不写入日志。</p>
+          </div>
+          <label for="admin-password">管理员密码</label>
+          <input id="admin-password" name="adminPassword" type="password" autocomplete="current-password" value="${safe(state.deletePassword)}" aria-describedby="delete-error" />
+          <label for="delete-reason">删除原因</label>
+          <textarea id="delete-reason" name="reason" rows="3" placeholder="可选，便于审计记录">${safe(state.deleteReason)}</textarea>
+          <p id="delete-error" class="error-text" role="alert">${safe(state.deleteError)}</p>
+          ${state.deleteMessage ? `<div class="success-box">${icon("badge-check")}<span>${safe(state.deleteMessage)}</span></div>` : ""}
+          <button class="danger-button" type="submit" ${state.deleteLoading ? "disabled" : ""}>${icon(state.deleteLoading ? "loader-circle" : "trash-2", state.deleteLoading ? "删除中" : "确认删除插件")}</button>
+        </form>
+      </article>
+    </main>
   `;
 }
-
-function submitPage() {
-  const url = document.querySelector("#repo-url")?.value || "";
-  const note = document.querySelector("#submit-note")?.value || "";
-  const error = state.submitTouched ? validateGithubUrl(url) : "";
-  return pageShell(`
-      <div class="detail-layout standard-layout">
-        <section class="detail-card glass-card standard-card">
-          <span class="perspective-kicker">${icon("git-pull-request", "提交插件")}</span>
-          <h1>分享一个 Codex 插件 GitHub 仓库</h1>
-          <p class="lede">在这里提交仓库链接即可进入自动审核队列。系统会代你创建追踪 issue，不需要跳转到 GitHub 再手动确认。</p>
-
-          <form class="form-grid detail-section" data-submit-form novalidate>
-            <div class="field">
-              <label for="repo-url">GitHub 仓库 URL <span aria-hidden="true">*</span></label>
-              <input id="repo-url" name="repoUrl" type="url" inputmode="url" autocomplete="url" value="${safe(url)}" placeholder="https://github.com/owner/plugin-repo" aria-describedby="repo-help repo-error" aria-invalid="${Boolean(error)}" />
-              <p id="repo-help" class="helper">需要公开仓库，并在根目录或 <code>plugins/*</code> 子目录包含 <code>.codex-plugin/plugin.json</code>。</p>
-              <p id="repo-error" class="error-text" role="alert">${safe(error)}</p>
-            </div>
-            <div class="field">
-              <label for="submit-note">补充说明</label>
-              <textarea id="submit-note" name="note" placeholder="插件用途、目标用户、需要注意的权限或安装说明">${safe(note)}</textarea>
-            </div>
-            <div class="form-actions">
-              <button class="perspective-button primary" type="submit" ${state.submitLoading ? "disabled" : ""}>
-                ${icon(state.submitLoading ? "loader-circle" : "send", state.submitLoading ? "正在提交审核..." : "提交审核")}
-              </button>
-              <a class="perspective-button secondary" href="/about" data-link>${icon("shield-check", "查看审核规则")}</a>
-            </div>
-          </form>
-
-          ${
-            state.submitError
-              ? `<div class="error-box detail-section" role="alert"><strong>提交失败</strong><p>${safe(state.submitError)}</p></div>`
-              : ""
-          }
-          ${
-            state.submitSuccessMessage
-              ? `<div class="success-box detail-section"><strong>${safe(state.submitSuccessMessage || "已提交审核")}</strong><p>${state.submitSuccessUrl ? "自动审核会在后台运行；下面的链接仅用于追踪进度，不需要再手动创建 issue。" : "系统没有创建新的审核 issue，你可以继续浏览或提交其他插件。"}</p>${state.submitSuccessUrl ? `<a class="perspective-button secondary" href="${safe(state.submitSuccessUrl)}" target="_blank" rel="noreferrer">${icon("external-link", state.submitIssueNumber ? `查看 #${safe(state.submitIssueNumber)}` : "查看审核进度")}</a>` : ""}</div>`
-              : ""
-          }
-        </section>
-
-        <aside class="sidebar">
-          <section class="panel glass-card standard-card">
-            <h2>自动校验</h2>
-            <div class="timeline">
-              ${timelineItem("file-json", "Manifest", "检查 name、version、author、interface、capabilities 字段。")}
-              ${timelineItem("tag", "Release/tag", "优先使用指定 ref；没有 Release 时可同步默认分支快照。")}
-              ${timelineItem("shield-check", "安全扫描", "静态检查高危命令、安装钩子和密钥外传风险。")}
-              ${timelineItem("shield", "执行边界", "审核不会执行提交仓库中的插件代码。")}
-            </div>
-          </section>
-        </aside>
-      </div>
-  `, "standard-page submit-page");
+function captureFocus() {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement))
+        return null;
+    if (!active.id)
+        return null;
+    return {
+        id: active.id,
+        value: active.value,
+        selectionStart: active.selectionStart,
+        selectionEnd: active.selectionEnd,
+    };
 }
-
-function installPage() {
-  return pageShell(`
-      <section class="detail-card glass-card standard-card standard-single">
-        <span class="perspective-kicker">${icon("download", "Install Marketplace")}</span>
-        <h1>把社区 Marketplace 添加到 Codex</h1>
-        <p class="lede">添加后，Codex Desktop 会从这个 GitHub 仓库读取 <code>marketplace.json</code> 和已审核插件快照。</p>
-
-        <div class="detail-section">
-          <h2>1. 同步整个 Marketplace</h2>
-          <p class="helper">在 Codex Desktop 的插件市场来源中添加这个 GitHub 仓库链接。添加后，已验证插件会随中央仓库同步显示。</p>
-          <div class="code-box">
-            <code>${safe(MARKETPLACE_REPOSITORY_URL)}</code>
-            <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_REPOSITORY_URL)}" data-copy-label="Marketplace 链接已复制" aria-label="复制 Marketplace 链接">${icon("monitor")}</button>
-          </div>
-        </div>
-
-        <div class="detail-section">
-          <h2>2. Codex CLI 添加 Marketplace</h2>
-          <div class="code-box">
-            <code>${safe(MARKETPLACE_COMMAND)}</code>
-            <button class="copy-button" type="button" data-copy="${safe(MARKETPLACE_COMMAND)}" data-copy-label="CLI 命令已复制" aria-label="复制 Marketplace 命令">${icon("terminal")}</button>
-          </div>
-        </div>
-
-        <div class="detail-section">
-          <h2>3. 单独安装已验证插件</h2>
-          <p class="helper">每个已验证插件卡片和详情页都会提供两个复制按钮：插件 GitHub 仓库链接，以及从已配置 Marketplace 安装该插件的 CLI 命令。</p>
-          <div class="code-box">
-            <code>codex plugin add plugin-name@codex-community</code>
-            <button class="copy-button" type="button" data-copy="codex plugin add plugin-name@codex-community" aria-label="复制插件安装命令示例">${icon("copy")}</button>
-          </div>
-        </div>
-
-        <div class="detail-section notice-box">
-          <h2>同步策略</h2>
-          <p>中央仓库用于批量发现和同步插件；单插件 CLI 命令用于精确安装某个已验证插件。自动审核规则通过后，Action 会更新 registry 和 marketplace 快照，网页与 Codex marketplace 都会同步出现该插件。</p>
-        </div>
-      </section>
-  `, "standard-page install-page");
-}
-
-function aboutPage() {
-  return pageShell(`
-      <section class="detail-card glass-card standard-card standard-single">
-        <span class="perspective-kicker">${icon("shield-check", "审核规则")}</span>
-        <h1>社区收录规则</h1>
-        <p class="lede">这个市场优先保证插件可安装、来源可追踪、风险可说明。增长很重要，但信任更重要。</p>
-
-        <div class="detail-section">
-          <h2>必须满足</h2>
-          <ul class="detail-list">
-            <li><span>公开来源</span><strong>GitHub 仓库和 Release 可访问</strong></li>
-            <li><span>Codex manifest</span><strong>根目录或 <code>plugins/*</code> 子目录包含 <code>.codex-plugin/plugin.json</code></strong></li>
-            <li><span>版本</span><strong>manifest 使用 SemVer；Release/tag 推荐，默认分支可作为预览 ref</strong></li>
-            <li><span>资源</span><strong>引用的图标、截图和配置文件必须存在</strong></li>
-          </ul>
-        </div>
-
-        <div class="detail-section">
-          <h2>不会做</h2>
-          <p>审核 Action 不会执行插件代码；只做 manifest、README、skills/mcp 路径校验，并增加静态安全扫描。明显危险的远程脚本执行、根目录删除、磁盘擦除等规则会阻断自动同步，可疑安装钩子会进入看板提醒。</p>
-        </div>
-      </section>
-  `, "standard-page about-page");
-}
-
-function notFoundPage() {
-  return pageShell(`
-      <section class="glass-card standard-card standard-single perspective-empty">
-        ${emptyState()}
-      </section>
-  `, "standard-page not-found-page");
+function restoreFocus(snapshot) {
+    if (!snapshot)
+        return;
+    if (skipNextFocusValueRestore) {
+        skipNextFocusValueRestore = false;
+        return;
+    }
+    const next = document.getElementById(snapshot.id);
+    if (!(next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement))
+        return;
+    if (snapshot.id === "repo-url")
+        state.submitUrl = snapshot.value;
+    if (snapshot.id === "plugin-search")
+        state.query = snapshot.value;
+    if (snapshot.id === "admin-password")
+        state.deletePassword = snapshot.value;
+    if (snapshot.id === "delete-reason")
+        state.deleteReason = snapshot.value;
+    next.value = snapshot.value;
+    next.focus({ preventScroll: true });
+    if (snapshot.selectionStart !== null && snapshot.selectionEnd !== null) {
+        try {
+            next.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+        }
+        catch { }
+    }
 }
 function render() {
-  document.documentElement.dataset.theme = currentTheme();
-  document.documentElement.dataset.themeMode = themeMode();
-  const path = state.route;
-  let view = perspectivePage();
-  if (path.startsWith("/plugins/")) view = detailPage(decodeURIComponent(path.split("/").filter(Boolean).pop() || ""));
-  if (path.startsWith("/reviews")) view = reviewsPage();
-  if (path.startsWith("/submit")) view = submitPage();
-  if (path.startsWith("/install")) view = installPage();
-  if (path.startsWith("/about")) view = aboutPage();
-  if (path.startsWith("/perspective")) view = perspectivePage();
-  app.innerHTML = view;
-  attachEvents();
-  renderIcons();
-}
-
-function renderIcons() {
-  if (window.lucide) {
-    window.lucide.createIcons({ attrs: { "stroke-width": 2 } });
-  }
-}
-
-function attachEvents() {
-  initShanghaiClock();
-
-  document.querySelectorAll("[data-link]").forEach((link) => {
-    link.addEventListener("click", (event) => {
-      const href = link.getAttribute("href");
-      if (!href || href.startsWith("http")) return;
-      event.preventDefault();
-      navigate(href);
-    });
-  });
-
-  document.querySelectorAll("[data-theme-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setThemeMode(button.dataset.themeMode);
-      const label = button.dataset.themeMode === "system" ? "跟随系统" : button.dataset.themeMode === "light" ? "浅色模式" : "深色模式";
-      showToast(`主题已切换为${label}`);
-    });
-  });
-
-  document.querySelector("[data-refresh-reviews]")?.addEventListener("click", () => {
-    loadReviewItems();
-  });
-
-  document.querySelector("#plugin-search")?.addEventListener("input", (event) => {
-    window.clearTimeout(attachEvents.searchTimer);
-    attachEvents.searchTimer = window.setTimeout(() => {
-      state.query = event.target.value;
-      render();
-      document.querySelector("#plugin-search")?.focus();
-    }, 120);
-  });
-
-  document.querySelectorAll("[data-category]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.category = button.dataset.category;
-      render();
-    });
-  });
-
-  document.querySelector("[data-verified-toggle]")?.addEventListener("click", () => {
-    state.showOnlyVerified = !state.showOnlyVerified;
-    render();
-  });
-
-  document.querySelector("[data-clear-filters]")?.addEventListener("click", () => {
-    state.query = "";
-    state.category = "全部";
-    state.showOnlyVerified = false;
-    render();
-  });
-
-  document.querySelectorAll("[data-copy]").forEach((button) => {
-    button.addEventListener("click", () => copyText(button.dataset.copy, button.dataset.copyLabel || "命令已复制"));
-  });
-
-
-  const repoInput = document.querySelector("#repo-url");
-  repoInput?.addEventListener("blur", () => {
-    state.submitTouched = true;
-  });
-
-  attachRemovalForm();
-  attachAdminReviewForms();
-
-  document.querySelector("[data-submit-form]")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const repoUrl = String(form.get("repoUrl") || "").trim();
-    const note = String(form.get("note") || "").trim();
-    const error = validateGithubUrl(repoUrl);
-    state.submitTouched = true;
-    state.submitError = "";
-    state.submitSuccessUrl = "";
-    state.submitSuccessMessage = "";
-    state.submitIssueNumber = "";
-    if (error) {
-      render();
-      document.querySelector("#repo-url")?.focus();
-      return;
-    }
-
-    state.submitLoading = true;
-    render();
-    try {
-      const response = await fetch("/api/submissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl, note }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "提交失败，请稍后重试。");
-
-      state.submitSuccessUrl = result.issueUrl || "";
-      state.submitSuccessMessage = result.message || "已提交，自动审核已进入队列。";
-      state.submitIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
-      loadReviewItems();
-      showToast(result.duplicate ? result.duplicateType === "listed" ? "插件已收录" : "已有审核任务" : "已提交审核");
-    } catch (error) {
-      state.submitError = error.message || "提交失败，请稍后重试。";
-      showToast("提交失败");
-    } finally {
-      state.submitLoading = false;
-      render();
-    }
-  });
-}
-
-function initShanghaiClock() {
-  window.clearInterval?.(attachEvents.shanghaiClockTimer);
-  attachEvents.shanghaiClockTimer = 0;
-  const clock = document.querySelector("[data-shanghai-clock]");
-  if (!clock) return;
-
-  const update = () => {
-    clock.textContent = formatShanghaiDateTime(new Date());
-  };
-
-  update();
-  attachEvents.shanghaiClockTimer = window.setInterval?.(update, 1000) || 0;
-
-
-}
-function attachRemovalForm() {
-  document.querySelector("[data-removal-form]")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const pluginName = String(form.get("pluginName") || "").trim();
-    const repositoryUrl = String(form.get("repositoryUrl") || "").trim();
-    const adminPassword = String(form.get("adminPassword") || "");
-    const reason = String(form.get("reason") || "").trim();
-    state.removalPluginName = pluginName;
-    state.removalTouched = true;
-    state.removalError = "";
-    state.removalSuccessUrl = "";
-    state.removalSuccessMessage = "";
-    state.removalIssueNumber = "";
-    if (!adminPassword) {
-      state.removalError = "请输入管理员密码。";
-      render();
-      document.querySelector("#removal-admin-password")?.focus();
-      return;
-    }
-
-    state.removalLoading = true;
-    render();
-    try {
-      const response = await fetch("/api/removals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pluginName, repositoryUrl, adminPassword, reason }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "删除请求提交失败，请稍后重试。");
-      state.removalSuccessUrl = result.issueUrl || "";
-      state.removalSuccessMessage = result.message || "已提交删除请求。";
-      state.removalIssueNumber = result.issueNumber ? String(result.issueNumber) : "";
-      removePluginFromLocal(result.repositoryUrl || repositoryUrl, result.pluginName || pluginName);
-      showToast(result.duplicate ? "已有删除请求，已从当前视图隐藏" : "已提交删除请求，当前视图已移除");
-      if (state.route.startsWith("/plugins/")) {
-        navigate("/");
-      }
-      window.setTimeout?.(loadReviewItems, 8000);
-    } catch (error) {
-      state.removalError = error.message || "删除请求提交失败，请稍后重试。";
-      showToast("删除请求失败");
-    } finally {
-      state.removalLoading = false;
-      render();
-    }
-  });
-}
-
-function attachAdminReviewForms() {
-  document.querySelectorAll("[data-admin-review-form]").forEach((formElement) => {
-    formElement.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const submitter = event.submitter;
-      const form = new FormData(event.currentTarget);
-      const submissionId = String(form.get("submissionId") || "").trim();
-      const repositoryUrl = String(form.get("repositoryUrl") || "").trim();
-      const adminPassword = String(form.get("adminPassword") || "");
-      const action = String(submitter?.value || form.get("action") || "").trim();
-      state.adminReviewTarget = submissionId;
-      state.adminReviewError = "";
-      state.adminReviewSuccessUrl = "";
-      state.adminReviewSuccessMessage = "";
-      if (!adminPassword) {
-        state.adminReviewError = "请输入管理员密码。";
-        render();
-        document.querySelector(`#admin-password-${String(submissionId).replace(/[^a-zA-Z0-9_-]/g, "-")}`)?.focus();
-        return;
-      }
-      state.adminReviewLoading = true;
-      render();
-      try {
-        const response = await fetch("/api/admin/submissions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ submissionId, repositoryUrl, adminPassword, action }),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "管理员操作提交失败，请稍后重试。");
-        state.adminReviewSuccessUrl = result.issueUrl || "";
-        state.adminReviewSuccessMessage = result.message || "管理员任务已提交。";
-        if (action === "remove-submission") {
-          removeRepositoryFromLocal(result.repositoryUrl || repositoryUrl);
-          showToast("已提交删除请求，当前视图已移除");
-          window.setTimeout?.(loadReviewItems, 8000);
-        } else {
-          loadReviewItems();
-          showToast("已提交手动通过任务");
-        }
-      } catch (error) {
-        state.adminReviewError = error.message || "管理员操作提交失败，请稍后重试。";
-        showToast("管理员操作失败");
-      } finally {
-        state.adminReviewLoading = false;
-        render();
-      }
-    });
-  });
-}
-
-function validateGithubUrl(value) {
-  if (!value.trim()) return "请输入 GitHub 仓库 URL。";
-  try {
-    const url = new URL(value);
-    if (url.hostname !== "github.com") return "目前只接受 github.com 仓库链接。";
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length < 2) return "链接需要包含 owner 和 repo。";
-    return "";
-  } catch {
-    return "URL 格式不正确，请使用 https://github.com/owner/repo。";
-  }
-}
-
-window.addEventListener("popstate", () => {
-  state.route = window.location.pathname;
-  render();
-});
-
-window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
-  if (themeMode() === "system") {
+    const focusSnapshot = captureFocus();
     applyTheme();
-    syncThemeControls();
-  }
+    if (state.route.startsWith("/plugins/")) {
+        app.innerHTML = detailPage(decodeURIComponent(state.route.split("/").filter(Boolean).pop() || ""));
+    }
+    else if (state.route.startsWith("/install")) {
+        app.innerHTML = staticPage("install");
+    }
+    else if (state.route.startsWith("/about")) {
+        app.innerHTML = staticPage("about");
+    }
+    else if (state.route.startsWith("/reviews")) {
+        app.innerHTML = staticPage("reviews");
+    }
+    else {
+        app.innerHTML = homePage();
+    }
+    window.lucide?.createIcons({ attrs: { "stroke-width": 2 } });
+    syncThemeButtons();
+    updateClock();
+    restoreFocus(focusSnapshot);
+}
+function routeTo(href) {
+    if (state.route === href)
+        return;
+    window.history.pushState({}, "", href);
+    state.route = href;
+    state.deleteError = "";
+    state.deleteMessage = "";
+    addLog("route", `切换页面：${href}`, "info");
+    scheduleRender();
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+function clearSubmitForm({ deferRender = false } = {}) {
+    submitRunId += 1;
+    clearSubmitProgressTimers();
+    skipNextFocusValueRestore = true;
+    const repoInput = document.querySelector("#repo-url");
+    if (repoInput)
+        repoInput.value = "";
+    document.querySelectorAll(".submit-panel .success-box, .submit-panel .error-box").forEach((node) => node.remove());
+    state.submitUrl = "";
+    state.submitError = "";
+    state.submitMessage = "";
+    state.submitTouched = false;
+    state.submitLoading = false;
+    state.submitStage = "idle";
+    state.submitStatus = "idle";
+    syncSubmitError("");
+    syncSubmitUi();
+    if (deferRender) {
+        window.setTimeout(scheduleRender, 240);
+    }
+    else {
+        scheduleRender();
+    }
+}
+function selectCategory(category) {
+    state.category = category || "全部";
+    document.querySelectorAll("[data-category]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.category === state.category));
+    });
+}
+function bindEvents() {
+    app.addEventListener("click", (event) => {
+        const target = event.target;
+        const copyButton = target.closest("[data-copy]");
+        if (!copyButton)
+            return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void copyText(copyButton.dataset.copy || "", copyButton.dataset.copyLabel || "已复制");
+    }, true);
+    app.addEventListener("click", (event) => {
+        const target = event.target;
+        const clearButton = target.closest('[data-action="clear-submit"]');
+        if (!clearButton)
+            return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        clearSubmitForm();
+        addLog("click", "提交表单已清空", "info");
+    }, true);
+    app.addEventListener("pointerdown", (event) => {
+        const target = event.target;
+        const categoryButton = target.closest("[data-category]");
+        if (categoryButton)
+            selectCategory(categoryButton.dataset.category || "全部");
+        const actionButton = target.closest('[data-action="submit-check"], [data-action="clear-submit"]');
+        if (actionButton) {
+            suppressSubmitBlur = true;
+            window.setTimeout(() => { suppressSubmitBlur = false; }, 500);
+            actionButton.classList.add("is-pressed");
+            window.setTimeout(() => actionButton.classList.remove("is-pressed"), 160);
+        }
+    }, true);
+    app.addEventListener("click", (event) => {
+        const target = event.target;
+        const link = target.closest("[data-link]");
+        if (link) {
+            const href = link.getAttribute("href");
+            if (href && !href.startsWith("http")) {
+                event.preventDefault();
+                routeTo(href);
+            }
+            return;
+        }
+        const themeButton = target.closest("[data-theme-mode]");
+        if (themeButton?.dataset.themeMode) {
+            setThemeMode(themeButton.dataset.themeMode);
+            return;
+        }
+        const copyButton = target.closest("[data-copy]");
+        if (copyButton) {
+            void copyText(copyButton.dataset.copy || "", copyButton.dataset.copyLabel || "已复制");
+            return;
+        }
+        const categoryButton = target.closest("[data-category]");
+        if (categoryButton) {
+            selectCategory(categoryButton.dataset.category || "全部");
+            addLog("filter", `分类切换为 ${state.category}`, "success");
+            scheduleRender();
+            return;
+        }
+        const warningButton = target.closest("[data-warning-toggle]");
+        if (warningButton) {
+            state.onlyWarnings = !state.onlyWarnings;
+            addLog("filter", state.onlyWarnings ? "仅查看需复核插件" : "显示全部插件", "success");
+            scheduleRender();
+            return;
+        }
+        const actionButton = target.closest("[data-action]");
+        const action = actionButton?.dataset.action;
+        if (action === "submit-check") {
+            event.preventDefault();
+            void submitRepository();
+            return;
+        }
+        if (action === "refresh-market") {
+            void loadMarket();
+            return;
+        }
+        if (action === "clear-submit") {
+            event.preventDefault();
+            clearSubmitForm({ deferRender: true });
+            addLog("click", "提交表单已清空", "info");
+            return;
+        }
+        if (action === "clear-logs") {
+            state.logs = [];
+            scheduleRender();
+        }
+    });
+    app.addEventListener("input", (event) => {
+        const input = event.target;
+        if (input.id === "repo-url") {
+            state.submitUrl = input.value;
+            state.submitError = "";
+            syncSubmitError("");
+            return;
+        }
+        if (input.id === "plugin-search") {
+            state.query = input.value;
+            window.clearTimeout(searchRenderTimer);
+            searchRenderTimer = window.setTimeout(() => {
+                addLog("filter", state.query ? `搜索：${state.query}` : "清空搜索", "info");
+                scheduleRender();
+            }, 120);
+            return;
+        }
+        if (input.id === "admin-password") {
+            state.deletePassword = input.value;
+            state.deleteError = "";
+            return;
+        }
+        if (input.id === "delete-reason") {
+            state.deleteReason = input.value;
+        }
+    });
+    app.addEventListener("blur", (event) => {
+        const input = event.target;
+        if (input.id === "repo-url") {
+            if (suppressSubmitBlur)
+                return;
+            state.submitTouched = true;
+            state.submitError = validateGithubUrl(state.submitUrl);
+            scheduleRender();
+        }
+    }, true);
+    app.addEventListener("submit", (event) => {
+        const form = event.target;
+        if (form.matches("[data-share-form]")) {
+            event.preventDefault();
+            void submitRepository();
+            return;
+        }
+        const pluginName = form.dataset.deleteForm;
+        if (pluginName) {
+            event.preventDefault();
+            void deletePlugin(pluginName);
+        }
+    });
+}
+window.addEventListener("popstate", () => {
+    state.route = window.location.pathname;
+    render();
 });
-
+window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
+    if (themeMode() === "system") {
+        applyTheme();
+        syncThemeButtons();
+    }
+});
 applyTheme();
-loadRegistry();
-startMarketplaceSync();
+bindEvents();
+startClock();
+void loadMarket();
+window.clearInterval(syncTimer);
+syncTimer = window.setInterval(() => void loadMarket({ silent: true }), 5000);
+export {};
