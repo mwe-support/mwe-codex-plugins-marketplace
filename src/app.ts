@@ -427,11 +427,9 @@ function setSubmitStage(stage: DetectionStage, status: AppState["submitStatus"] 
   syncSubmitUi();
 }
 
-function stageAdvanceDelay(stage: DetectionStage) {
+function stageAdvanceDelay(_stage: DetectionStage) {
   if (prefersReducedMotion()) return 20;
-  if (stage === "extracting") return 1050;
-  if (stage === "completed") return 120;
-  return 180;
+  return 1400;
 }
 
 async function animateSubmitTo(stage: DetectionStage, status: AppState["submitStatus"]) {
@@ -454,9 +452,9 @@ function startSubmitProgress() {
     return;
   }
   submitProgressTimers = [
-    window.setTimeout(() => setSubmitStage("cloning"), 220),
-    window.setTimeout(() => setSubmitStage("validating"), 520),
-    window.setTimeout(() => setSubmitStage("extracting"), 760),
+    window.setTimeout(() => setSubmitStage("cloning"), 1400),
+    window.setTimeout(() => setSubmitStage("validating"), 2800),
+    window.setTimeout(() => setSubmitStage("extracting"), 4200),
   ];
 }
 
@@ -644,12 +642,12 @@ function syncSubmitError(message = state.submitError) {
 
 function progressSteps() {
   return [
-    ["received", "link", "接收链接", "验证链接格式"],
-    ["cloning", "cloud-download", "拉取仓库", "读取仓库内容"],
-    ["validating", "shield-check", "检测规范", "验证插件规范"],
-    ["extracting", "list-filter", "提取信息", "生成插件信息"],
-    ["completed", "store", "完成", "加入市场展示"],
-  ] as Array<[DetectionStage, string, string, string]>;
+    ["received", "接收链接", "验证链接格式"],
+    ["cloning", "拉取仓库", "读取仓库内容"],
+    ["validating", "检测规范", "验证插件规范"],
+    ["extracting", "提取信息", "生成插件信息"],
+    ["completed", "完成", "加入市场展示"],
+  ] as Array<[DetectionStage, string, string]>;
 }
 
 function syncProgressDom() {
@@ -687,11 +685,10 @@ function progressRail() {
     <div class="progress-rail" aria-label="检测进度" style="--progress: ${progressPercent()}%" data-stage="${safe(state.submitStage)}" data-status="${safe(state.submitStatus)}">
       <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-beam"></span><span class="progress-particles"></span></span>
       ${progressSteps()
-        .map(([stage, iconName, title, detail], index) => {
+        .map(([stage, title, detail], index) => {
           const status = stepState(stage, state.submitStatus);
           return `
             <div class="progress-step ${status}" data-step="${safe(stage)}">
-              <span class="step-visual" aria-hidden="true">${icon(iconName)}</span>
               <span class="step-node">${stepNodeContent(index, status)}</span>
               <strong>${safe(title)}</strong>
               <p>${safe(detail)}</p>
