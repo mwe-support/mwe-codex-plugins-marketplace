@@ -115,6 +115,9 @@ test('dashboard matches the accepted structure without overflow', async ({ page 
   await expect(page.getByText('最近检测记录')).toBeVisible();
   await expect(page.locator('[data-beijing-time]').first()).toContainText(/\d{4}\/\d{2}\/\d{2}/);
   await expect(page.locator('.progress-step')).toHaveCount(5);
+  await expect(page.locator('.progress-beam')).toHaveCount(1);
+  await expect(page.locator('.market-list .plugin-row')).toHaveCount(9);
+  await expect(page.getByRole('button', { name: /下一页/ })).toBeEnabled();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(overflow).toBeFalsy();
   expect(consoleMessages.filter((item) => !item.includes('Failed to load resource'))).toEqual([]);
@@ -127,9 +130,15 @@ test('theme, category filters, copy buttons, and routes remain responsive', asyn
   await rapidClick(page.getByRole('button', { name: '浅色' }), 8);
   await rapidClick(page.getByRole('button', { name: '深色' }), 8);
   await rapidClick(page.getByRole('button', { name: '跟随系统' }), 8);
+  await page.getByRole('button', { name: /下一页/ }).click();
+  await expect(page.getByRole('link', { name: /Plugin 9/ })).toBeVisible();
+  await page.getByRole('button', { name: /上一页/ }).click();
+  await expect(page.getByRole('link', { name: /Context7/ }).first()).toBeVisible();
+  await page.getByRole('button', { name: /过滤/ }).click();
   await rapidClick(page.getByRole('button', { name: /仅看需复核|显示全部/ }), 8);
   await page.getByRole('button', { name: 'Coding' }).click();
   await expect(page.getByRole('button', { name: 'Coding' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('link', { name: /Context7/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Developer Tools' }).click();
   await expect(page.getByRole('button', { name: 'Developer Tools' })).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#plugin-search').fill('context7');

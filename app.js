@@ -12,6 +12,8 @@ const state = {
     query: "",
     category: "全部",
     onlyWarnings: false,
+    filterOpen: false,
+    marketPage: 1,
     submitUrl: "",
     submitTouched: false,
     submitLoading: false,
@@ -42,6 +44,8 @@ let submitRunId = 0;
 let suppressSubmitBlur = false;
 let toastTimer = 0;
 let skipNextFocusValueRestore = false;
+let recentPaginationPointer = 0;
+let recentFilterPointer = 0;
 const safe = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -219,6 +223,48 @@ function filteredPlugins() {
         return matchesQuery && matchesCategory && matchesWarnings;
     });
 }
+const marketPageSize = 9;
+function activeFilterCount() {
+    return (state.query.trim() ? 1 : 0) + (state.category !== "全部" ? 1 : 0) + (state.onlyWarnings ? 1 : 0);
+}
+function maxMarketPage(total) {
+    return Math.max(1, Math.ceil(total / marketPageSize));
+}
+function clampMarketPage(total = filteredPlugins().length) {
+    state.marketPage = Math.min(Math.max(1, state.marketPage), maxMarketPage(total));
+}
+function resetMarketPage() {
+    state.marketPage = 1;
+}
+function changeMarketPage(action) {
+    const maxPage = maxMarketPage(filteredPlugins().length);
+    const nextPage = action === "page-prev" ? Math.max(1, state.marketPage - 1) : Math.min(maxPage, state.marketPage + 1);
+    if (nextPage === state.marketPage)
+        return false;
+    state.marketPage = nextPage;
+    addLog("filter", `切换到插件第 ${state.marketPage} 页`, "info");
+    scheduleRender();
+    return true;
+}
+function toggleFilterPanel() {
+    state.filterOpen = !state.filterOpen;
+    addLog("filter", state.filterOpen ? "展开过滤条件" : "收起过滤条件", "info");
+    scheduleRender();
+}
+function toggleWarningFilter() {
+    state.onlyWarnings = !state.onlyWarnings;
+    resetMarketPage();
+    addLog("filter", state.onlyWarnings ? "仅查看需复核插件" : "显示全部插件", "success");
+    scheduleRender();
+}
+function resetFilters() {
+    state.query = "";
+    state.category = "全部";
+    state.onlyWarnings = false;
+    resetMarketPage();
+    addLog("filter", "过滤条件已重置", "success");
+    scheduleRender();
+}
 async function loadMarket({ silent = false } = {}) {
     if (!silent)
         state.liveStatus = "loading";
@@ -237,6 +283,7 @@ async function loadMarket({ silent = false } = {}) {
         const nextSignature = JSON.stringify({ plugins: nextMarket.plugins, checks: nextMarket.checks, status: "live" });
         const changed = nextSignature !== marketSignature || state.liveStatus !== "live" || Boolean(state.liveError);
         state.market = nextMarket;
+        clampMarketPage();
         marketSignature = nextSignature;
         state.liveStatus = payload.serviceStatus || "live";
         state.liveError = "";
@@ -530,7 +577,7 @@ function syncSubmitUi() {
 function progressRail() {
     return `
     <div class="progress-rail" aria-label="检测进度" style="--progress: ${progressPercent()}%" data-stage="${safe(state.submitStage)}" data-status="${safe(state.submitStatus)}">
-      <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-particles"></span></span>
+      <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-beam"></span><span class="progress-particles"></span></span>
       ${progressSteps()
         .map(([stage, iconName, title, detail], index) => {
         const status = stepState(stage, state.submitStatus);
@@ -603,6 +650,14 @@ function pluginRow(plugin) {
 }
 function marketPanel() {
     const plugins = filteredPlugins();
+    clampMarketPage(plugins.length);
+    const pageCount = maxMarketPage(plugins.length);
+    const start = (state.marketPage - 1) * marketPageSize;
+    const pagePlugins = plugins.slice(start, start + marketPageSize);
+    const activeFilters = activeFilterCount();
+    const filterPanelOpen = state.filterOpen || activeFilters > 0;
+    const firstShown = pagePlugins.length ? start + 1 : 0;
+    const lastShown = start + pagePlugins.length;
     return `
     <section class="market-panel glass-panel" aria-labelledby="market-title">
       <div class="panel-title-row">
@@ -611,7 +666,7 @@ function marketPanel() {
           <p>已检测通过的插件将实时展示在这里。</p>
         </div>
         <div class="market-count">
-          <span>当前显示 ${plugins.length} / 共 ${state.market.plugins.length} 个插件</span>
+          <span>当前显示 ${firstShown}-${lastShown} / 筛选 ${plugins.length} / 共 ${state.market.plugins.length} 个插件</span>
           <button class="secondary-button compact" type="button" data-action="refresh-market">${icon("refresh-cw", "刷新")}</button>
         </div>
       </div>
@@ -620,15 +675,26 @@ function marketPanel() {
           ${icon("search")}
           <input id="plugin-search" type="search" placeholder="搜索插件、作者、能力..." value="${safe(state.query)}" />
         </label>
-        <div class="tabs" role="tablist" aria-label="分类">
+        <button class="secondary-button compact filter-toggle" data-action="toggle-filters" type="button" aria-expanded="${filterPanelOpen}" aria-controls="market-filters">${icon("sliders-horizontal", `过滤${activeFilters ? ` ${activeFilters}` : ""}`)}</button>
+      </div>
+      <div id="market-filters" class="filter-panel ${filterPanelOpen ? "open" : ""}">
+        <div class="tabs" role="tablist" aria-label="分类过滤">
           ${categories()
         .map((category) => `<button class="tab" data-action="category" data-category="${safe(category)}" aria-pressed="${state.category === category}" type="button">${safe(category)}</button>`)
         .join("")}
         </div>
-        <button class="secondary-button compact" data-action="warning-toggle" data-warning-toggle type="button" aria-pressed="${state.onlyWarnings}">${icon("shield-alert", state.onlyWarnings ? "显示全部" : "仅看需复核")}</button>
+        <div class="filter-actions">
+          <button class="secondary-button compact" data-action="warning-toggle" data-warning-toggle type="button" aria-pressed="${state.onlyWarnings}">${icon("shield-alert", state.onlyWarnings ? "显示全部" : "仅看需复核")}</button>
+          <button class="secondary-button compact" data-action="reset-filters" type="button" ${activeFilters ? "" : "disabled"}>${icon("rotate-ccw", "重置过滤")}</button>
+        </div>
       </div>
-      <div class="market-list">
-        ${plugins.length ? plugins.map(pluginRow).join("") : `<div class="empty-state">${icon("package-search")}<h3>还没有匹配插件</h3><p>换个分类或提交一个新的 Codex 插件仓库。</p></div>`}
+      <div class="market-list" data-page="${state.marketPage}" data-page-count="${pageCount}">
+        ${pagePlugins.length ? pagePlugins.map(pluginRow).join("") : `<div class="empty-state">${icon("package-search")}<h3>还没有匹配插件</h3><p>换个分类或提交一个新的 Codex 插件仓库。</p></div>`}
+      </div>
+      <div class="pagination" aria-label="插件分页">
+        <button class="secondary-button compact" data-action="page-prev" type="button" ${state.marketPage <= 1 ? "disabled" : ""}>${icon("chevron-left", "上一页")}</button>
+        <span>第 ${state.marketPage} / ${pageCount} 页</span>
+        <button class="secondary-button compact" data-action="page-next" type="button" ${state.marketPage >= pageCount ? "disabled" : ""}>${icon("chevron-right", "下一页")}</button>
       </div>
     </section>
   `;
@@ -904,6 +970,7 @@ function clearSubmitForm({ deferRender = false } = {}) {
 }
 function selectCategory(category) {
     state.category = category || "全部";
+    resetMarketPage();
     document.querySelectorAll("[data-category]").forEach((button) => {
         button.setAttribute("aria-pressed", String(button.dataset.category === state.category));
     });
@@ -930,9 +997,36 @@ function bindEvents() {
     }, true);
     app.addEventListener("pointerdown", (event) => {
         const target = event.target;
-        const categoryButton = target.closest("[data-category]");
-        if (categoryButton)
-            selectCategory(categoryButton.dataset.category || "全部");
+        const pageButton = target.closest('[data-action="page-prev"], [data-action="page-next"]');
+        if (pageButton && !pageButton.disabled) {
+            event.preventDefault();
+            recentPaginationPointer = Date.now();
+            changeMarketPage(pageButton.dataset.action);
+            return;
+        }
+        const filterActionButton = target.closest('[data-action="toggle-filters"], [data-action="reset-filters"], [data-warning-toggle], [data-category]');
+        if (filterActionButton && !filterActionButton.disabled) {
+            event.preventDefault();
+            recentFilterPointer = Date.now();
+            if (filterActionButton.dataset.category !== undefined) {
+                selectCategory(filterActionButton.dataset.category || "全部");
+                addLog("filter", `分类切换为 ${state.category}`, "success");
+                scheduleRender();
+                return;
+            }
+            if (filterActionButton.dataset.warningToggle !== undefined) {
+                toggleWarningFilter();
+                return;
+            }
+            if (filterActionButton.dataset.action === "toggle-filters") {
+                toggleFilterPanel();
+                return;
+            }
+            if (filterActionButton.dataset.action === "reset-filters") {
+                resetFilters();
+                return;
+            }
+        }
         const actionButton = target.closest('[data-action="submit-check"], [data-action="clear-submit"]');
         if (actionButton) {
             suppressSubmitBlur = true;
@@ -964,20 +1058,37 @@ function bindEvents() {
         }
         const categoryButton = target.closest("[data-category]");
         if (categoryButton) {
-            selectCategory(categoryButton.dataset.category || "全部");
-            addLog("filter", `分类切换为 ${state.category}`, "success");
-            scheduleRender();
+            if (Date.now() - recentFilterPointer > 1200) {
+                selectCategory(categoryButton.dataset.category || "全部");
+                addLog("filter", `分类切换为 ${state.category}`, "success");
+                scheduleRender();
+            }
             return;
         }
         const warningButton = target.closest("[data-warning-toggle]");
         if (warningButton) {
-            state.onlyWarnings = !state.onlyWarnings;
-            addLog("filter", state.onlyWarnings ? "仅查看需复核插件" : "显示全部插件", "success");
-            scheduleRender();
+            if (Date.now() - recentFilterPointer > 1200)
+                toggleWarningFilter();
             return;
         }
         const actionButton = target.closest("[data-action]");
         const action = actionButton?.dataset.action;
+        if (action === "toggle-filters") {
+            if (Date.now() - recentFilterPointer > 1200)
+                toggleFilterPanel();
+            return;
+        }
+        if (action === "reset-filters") {
+            if (Date.now() - recentFilterPointer > 1200)
+                resetFilters();
+            return;
+        }
+        if (action === "page-prev" || action === "page-next") {
+            if (Date.now() - recentPaginationPointer > 1200) {
+                changeMarketPage(action);
+            }
+            return;
+        }
         if (action === "submit-check") {
             event.preventDefault();
             void submitRepository();
@@ -1008,6 +1119,7 @@ function bindEvents() {
         }
         if (input.id === "plugin-search") {
             state.query = input.value;
+            resetMarketPage();
             window.clearTimeout(searchRenderTimer);
             searchRenderTimer = window.setTimeout(() => {
                 addLog("filter", state.query ? `搜索：${state.query}` : "清空搜索", "info");
