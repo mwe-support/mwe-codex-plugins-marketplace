@@ -15,7 +15,11 @@ const marketPayload = {
     tags: ['文档', `tag-${i}`, i % 5 === 0 ? 'warning' : 'passed'],
     capabilities: i % 3 === 0 ? ['文档', 'MCP', '开发工具'] : ['Coding', 'Marketplace', 'CLI'],
     version: '0.1.0',
+    releaseTag: i === 0 ? 'dev' : 'main',
+    defaultBranch: i === 0 ? 'dev' : 'main',
+    headSha: i === 0 ? '1111111111111111111111111111111111111111' : null,
     repositoryUrl: i === 0 ? 'https://github.com/upstash/context7' : `https://github.com/example/plugin-${i}`,
+    repositoryTreeUrl: i === 0 ? 'https://github.com/upstash/context7/tree/dev' : `https://github.com/example/plugin-${i}/tree/main`,
     verifiedStatus: 'verified',
     syncStatus: 'synced',
     securityScan: { status: i % 5 === 0 ? 'warnings' : 'passed', findings: [] },
@@ -144,6 +148,8 @@ test('theme, category filters, copy buttons, and routes remain responsive', asyn
   await page.locator('#plugin-search').fill('context7');
   await page.waitForTimeout(180);
   await expect(page.getByRole('link', { name: /Context7/ }).first()).toBeVisible();
+  await expect(page.locator('[data-action="copy-repo"]').first()).toHaveAttribute('data-copy', 'https://github.com/upstash/context7/tree/dev');
+  await expect(page.locator('[data-action="copy-cli"]').first()).toHaveAttribute('data-copy', 'codex plugin marketplace add https://github.com/upstash/context7 --ref dev');
   await page.locator('[data-action="copy-repo"]').first().click();
   await page.locator('[data-action="copy-cli"]').first().click();
   await page.getByRole('link', { name: /Context7/ }).click();
@@ -217,13 +223,12 @@ test('install page explains Desktop and CLI usage without central marketplace li
   await expect(page.getByRole('heading', { name: '如何使用插件市场' })).toBeVisible();
   await expect(page.getByText('Codex Desktop 用户')).toBeVisible();
   await expect(page.getByText('打开插件市场')).toBeVisible();
-  await expect(page.getByText('复制插件仓库链接')).toBeVisible();
-  await expect(page.getByText('在 Codex Desktop 的插件安装入口粘贴插件仓库链接')).toBeVisible();
+  await expect(page.getByText('复制默认分支链接')).toBeVisible();
+  await expect(page.getByText('在 Codex Desktop 的插件安装入口粘贴插件默认分支链接')).toBeVisible();
   await expect(page.getByText('Codex CLI 用户')).toBeVisible();
   await expect(page.getByText('复制 CLI 安装命令')).toBeVisible();
-  await expect(page.getByText('codex plugin add <插件仓库链接>')).toBeVisible();
+  await expect(page.getByText('codex plugin marketplace add <插件仓库链接> --ref <默认分支>')).toBeVisible();
   await expect(page.getByText('mwe-support/mwe-codex-plugins-marketplace')).toHaveCount(0);
-  await expect(page.getByText('codex plugin marketplace add')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /复制 Marketplace/ })).toHaveCount(0);
   await expect(page.getByText('GitHub Action')).toHaveCount(0);
 });

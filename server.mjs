@@ -82,6 +82,40 @@ function gitFailureSummary(error) {
   return message.slice(0, 180) || 'unknown';
 }
 
+function parseHeadRefOutput(stdout) {
+  const text = String(stdout || '');
+  const branch = text.match(/^ref:\s+refs\/heads\/(.+?)\s+HEAD$/m)?.[1] || '';
+  const headSha = text.match(/^([a-f0-9]{40})\s+HEAD$/m)?.[1] || null;
+  return { defaultBranch: branch || 'HEAD', headSha };
+}
+
+function repositoryTreeUrl(normalizedUrl, defaultBranch) {
+  const branch = String(defaultBranch || '').trim();
+  if (!branch || branch === 'HEAD') return normalizedUrl;
+  const encodedBranch = branch.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  return `${normalizedUrl}/tree/${encodedBranch}`;
+}
+
+function repositoryRefMetadata(normalizedUrl, defaultBranch, headSha) {
+  const branch = String(defaultBranch || '').trim() || 'HEAD';
+  return {
+    defaultBranch: branch,
+    headSha: headSha || null,
+    repositoryTreeUrl: repositoryTreeUrl(normalizedUrl, branch),
+    installSourceUrl: normalizedUrl,
+  };
+}
+
+function withRepositoryRef(plugin, ref) {
+  const metadata = repositoryRefMetadata(plugin.repositoryUrl, ref.defaultBranch, ref.headSha);
+  return {
+    ...plugin,
+    ...metadata,
+    releaseTag: metadata.defaultBranch,
+    source: { ...(plugin.source || {}), ...metadata },
+  };
+}
+
 async function runGitRead(args, { timeout, normalizedUrl, beforeAttempt = null }) {
   const attempts = [];
   for (const candidateUrl of githubUrlCandidates(normalizedUrl)) {
@@ -291,6 +325,46 @@ async function cloneRepository(normalizedUrl) {
   }
 }
 
+async function readRemoteRepositoryRef(normalizedUrl) {
+  const probe = await runGitRead((candidateUrl) => ['ls-remote', '--symref', candidateUrl, 'HEAD'], {
+    timeout: GITHUB_HEALTH_TIMEOUT_MS,
+    normalizedUrl,
+  });
+  const ref = parseHeadRefOutput(probe.result.stdout);
+  return repositoryRefMetadata(normalizedUrl, ref.defaultBranch, ref.headSha);
+}
+
+async function readClonedRepositoryRef(repoPath, normalizedUrl) {
+  let defaultBranch = 'HEAD';
+  let headSha = null;
+  try {
+    const branch = await execFileAsync('git', ['-C', repoPath, 'symbolic-ref', '--short', 'HEAD'], { timeout: 5_000 });
+    defaultBranch = String(branch.stdout || '').trim() || defaultBranch;
+  } catch {}
+  try {
+    const revision = await execFileAsync('git', ['-C', repoPath, 'rev-parse', 'HEAD'], { timeout: 5_000 });
+    headSha = String(revision.stdout || '').trim() || null;
+  } catch {}
+  return repositoryRefMetadata(normalizedUrl, defaultBranch, headSha);
+}
+
+async function refreshExistingPlugins(normalizedUrl, plugins) {
+  let ref;
+  try {
+    ref = await readRemoteRepositoryRef(normalizedUrl);
+  } catch (error) {
+    console.warn(`[github-ref:failed] repo=${normalizedUrl} ${error.message || 'unknown error'}`);
+    const fallbackBranch = plugins.find((plugin) => plugin.defaultBranch || plugin.releaseTag)?.defaultBranch || plugins.find((plugin) => plugin.releaseTag)?.releaseTag || 'HEAD';
+    ref = repositoryRefMetadata(normalizedUrl, fallbackBranch, plugins.find((plugin) => plugin.headSha)?.headSha || null);
+  }
+  const refreshed = plugins.map((plugin) => withRepositoryRef(plugin, ref));
+  for (const plugin of refreshed) {
+    memory.plugins.set(plugin.name, plugin);
+    await upsertPlugin(plugin, 'active');
+  }
+  return refreshed;
+}
+
 async function checkGithubRead(repositoryUrl = GITHUB_HEALTH_REPOSITORY) {
   const checkedAt = new Date().toISOString();
   let parsed;
@@ -315,15 +389,18 @@ async function detectPlugins(repositoryUrl) {
   const { owner, repo, normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
   const existingPlugins = (await findPluginsByRepositoryFromDb(normalizedUrl))?.filter((plugin) => plugin.source?.type === 'shared-repository');
   if (existingPlugins?.length) {
-    return { normalizedUrl, owner, repo, duplicate: true, plugins: existingPlugins, warnings: [] };
+    const plugins = await refreshExistingPlugins(normalizedUrl, existingPlugins);
+    return { normalizedUrl, owner, repo, duplicate: true, plugins, warnings: [] };
   }
   const existing = await findPluginByRepositoryFromDb(normalizedUrl);
   if (existing?.source?.type === 'shared-repository') {
-    return { normalizedUrl, owner, repo, duplicate: true, plugins: [existing], warnings: [] };
+    const plugins = await refreshExistingPlugins(normalizedUrl, [existing]);
+    return { normalizedUrl, owner, repo, duplicate: true, plugins, warnings: [] };
   }
 
   const { tempRoot, repoPath } = await cloneRepository(normalizedUrl);
   try {
+    const repositoryRef = await readClonedRepositoryRef(repoPath, normalizedUrl);
     const files = await walkRepository(repoPath);
     const manifests = manifestPaths(files);
     const inferred = inferredPluginPaths(files);
@@ -353,7 +430,7 @@ async function detectPlugins(repositoryUrl) {
         for (const item of missing) findings.push({ severity: 'low', path: manifestRelativePath, description: item });
         const tags = [...new Set([...stringList(manifest.keywords), iface.category, ...(missing.length ? ['需要复核'] : ['结构检测通过'])].filter(Boolean))];
         const capabilities = stringList(iface.capabilities).length ? stringList(iface.capabilities) : stringList(manifest.capabilities).length ? stringList(manifest.capabilities) : inferred.skillFiles.length ? ['Skill'] : inferred.mcpFiles.length ? ['MCP'] : ['Codex Plugin'];
-        plugins.push({
+        plugins.push(withRepositoryRef({
           name: pluginName,
           displayName: iface.displayName || manifest.displayName || manifest.name || repo,
           description: iface.shortDescription || manifest.description || `${repo} Codex 插件仓库`,
@@ -364,7 +441,7 @@ async function detectPlugins(repositoryUrl) {
           tags,
           capabilities,
           version: String(manifest.version || '0.1.0'),
-          releaseTag: 'main',
+          releaseTag: repositoryRef.defaultBranch,
           repositoryUrl: normalizedUrl,
           verifiedStatus: 'verified',
           syncStatus: 'synced',
@@ -380,11 +457,11 @@ async function detectPlugins(repositoryUrl) {
             rules: ['public GitHub repository cloned', 'Codex plugin entry discovered', 'non-critical issues recorded as warnings'],
           },
           securityScan: { status: findings.length ? 'warnings' : 'passed', blocked: false, findings, scannedAt: now },
-        });
+        }, repositoryRef));
       }
     } else {
       const findings = [{ severity: 'low', path: inferred.skillFiles[0] || inferred.mcpFiles[0], description: '未发现 .codex-plugin/plugin.json，已根据明显的 skill/MCP 结构推断为 Codex 插件。' }];
-      plugins.push({
+      plugins.push(withRepositoryRef({
         name: slugify(repo),
         displayName: repo,
         description: `${repo} 包含 Codex skill 或 MCP 插件结构。`,
@@ -395,7 +472,7 @@ async function detectPlugins(repositoryUrl) {
         tags: ['结构推断', '需要复核'],
         capabilities: inferred.skillFiles.length ? ['Skill'] : ['MCP'],
         version: '0.1.0',
-        releaseTag: 'main',
+        releaseTag: repositoryRef.defaultBranch,
         repositoryUrl: normalizedUrl,
         verifiedStatus: 'verified',
         syncStatus: 'synced',
@@ -405,7 +482,7 @@ async function detectPlugins(repositoryUrl) {
         source: { type: 'shared-repository', url: normalizedUrl, inferredFrom: inferred.skillFiles[0] || inferred.mcpFiles[0] },
         review: { status: 'approved', reviewedAt: now, reviewer: 'server-detector', method: 'relaxed-web-detection' },
         securityScan: { status: 'warnings', blocked: false, findings, scannedAt: now },
-      });
+      }, repositoryRef));
     }
     return { normalizedUrl, owner, repo, duplicate: false, plugins, warnings: plugins.flatMap((plugin) => plugin.securityScan.findings || []) };
   } finally {

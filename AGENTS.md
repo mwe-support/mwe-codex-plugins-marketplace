@@ -12,7 +12,7 @@ The product is not a central GitHub registry, GitHub issue review flow, or GitHu
 - `src/app.ts` is the source for the vanilla TypeScript SPA; `npm run build` writes `app.js`.
 - PostgreSQL is the runtime source of truth for plugins, checks, and admin actions.
 - `GET /api/market` powers the live marketplace and recent checks.
-- `POST /api/check` validates a submitted public repository, clones/reads it, detects Codex plugin content, records the check, and upserts passing plugins.
+- `POST /api/check` validates a submitted public repository, clones/reads it, detects Codex plugin content, records the check, captures the repository default branch, and upserts passing plugins.
 - `DELETE /api/plugins/:name` removes a plugin after admin password verification.
 - `/registry/plugins.json` exists only as a compatibility endpoint over current PostgreSQL state; do not design new flows around a static registry file.
 - `marketplace/snapshots/*` are copied plugin source snapshots, not project documentation. Do not mass-edit them when aligning marketplace docs.
@@ -43,8 +43,9 @@ When adding a page, update this list and verify the new page uses the same theme
 ## Marketplace Copy Rules
 
 - Use `MWE Codex插件共享市场` for the product/brand title.
-- The repository link action copies the plugin source GitHub repository URL.
-- The CLI action copies `codex plugin add <repository-url>`.
+- The repository link action copies the plugin source GitHub tree URL for the detected default branch, such as `https://github.com/owner/repo/tree/dev`.
+- The CLI action copies `codex plugin marketplace add <repository-url> --ref <default-branch>`.
+- Keep the canonical `repositoryUrl` as the GitHub root URL and store detected branch metadata in `releaseTag`, `defaultBranch`, `headSha`, `repositoryTreeUrl`, `source`, and metadata JSON fields.
 - Do not tell users to add this website repository as a central marketplace source.
 - Keep copy concise: this site is for quick sharing, detection, discovery, and installation of individual plugins, not a marketing landing page.
 
@@ -55,7 +56,7 @@ When adding a page, update this list and verify the new page uses the same theme
 - Detection should be permissive enough for real community repositories: missing Release, screenshots, or optional metadata should become warnings, not hard failures.
 - Hard failures should be reserved for inaccessible repositories, invalid URLs, unreadable/invalid plugin manifests, dangerous content, or no recognizable Codex plugin entry.
 - Failed checks must be visible as failed in `/api/market`; never leave failed uploads stuck as pending/reviewing.
-- Duplicate plugin submissions are detected by normalized GitHub repository URL and should return a clear user-facing message instead of creating another record loop.
+- Duplicate plugin submissions are detected by normalized GitHub repository URL and should refresh default-branch metadata, then return a clear user-facing message instead of creating another record loop.
 - Theme switching must not rebuild the whole app or reset the current route. Update theme attributes and pressed states in place.
 - Copy buttons should show a toast and remain usable after theme changes and route changes.
 - Search/filter interactions should keep stable keys and avoid rendering unnecessary lists.

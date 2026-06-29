@@ -43,8 +43,10 @@ export function normalizeRepositoryUrl(value) {
 }
 
 function rowToPlugin(row) {
+  const metadata = row.metadata || {};
+  const source = row.source || null;
   return {
-    ...(row.metadata || {}),
+    ...metadata,
     name: row.name,
     displayName: row.display_name,
     description: row.description,
@@ -62,7 +64,10 @@ function rowToPlugin(row) {
     syncTimestamp: row.sync_timestamp,
     installPolicy: row.install_policy,
     featured: row.featured,
-    source: row.source,
+    source,
+    defaultBranch: metadata.defaultBranch || source?.defaultBranch || row.release_tag,
+    headSha: metadata.headSha || source?.headSha || null,
+    repositoryTreeUrl: metadata.repositoryTreeUrl || source?.repositoryTreeUrl || null,
     review: row.review,
     securityScan: row.security_scan,
     stateStatus: row.status,
