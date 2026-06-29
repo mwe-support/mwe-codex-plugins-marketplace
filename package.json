@@ -1,7 +1,7 @@
 {
   "name": "mwe-codex-plugins-marketplace",
   "version": "1.0.0",
-  "description": "MWE Codex 插件快享市场：粘贴公开 GitHub 仓库链接，服务端检测 Codex 插件结构，通过后实时显示在网页市场。",
+  "description": "MWE Codex插件共享市场：粘贴公开 GitHub 仓库链接，服务端检测 Codex 插件结构，通过后实时显示在网页市场。",
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",

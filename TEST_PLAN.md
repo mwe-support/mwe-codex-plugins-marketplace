@@ -1,21 +1,18 @@
-# UI / Interaction Regression Test Plan
+# UI / API / Deployment Regression Test Plan
 
 This project uses a dark-first Perspective glassmorphism UI. All pages and components should keep the same rounded typography, layered control-deck layout, Lucide icon language, and responsive behavior.
 
-## Roles Used For This Review
-
-- UI/UX review subagent: audited layout consistency, accessibility risks, responsive screenshot coverage, and likely jank sources.
-- Interaction testing subagent: designed repeated-click stress flows, latency metrics, long-task thresholds, and Playwright automation strategy.
-
 ## Target Flows
 
-1. `/` loads, `/api/market` returns data, marketplace filters and copy controls render.
-2. `/share` shows the upload form, validates invalid URLs inline, and shows success/failure feedback.
+1. `/` loads, `/api/market` returns PostgreSQL-backed data, marketplace filters and copy controls render.
+2. `/share` shows the upload form, validates invalid URLs inline, and shows success/failure feedback from `POST /api/check`.
 3. `/plugins/:name` deep links into the themed detail page.
-4. Theme switching between system/light/dark does not reset route state or freeze controls.
-5. Search, category filters, warning filter, and copy buttons respond under rapid clicking.
-6. Admin delete requires a password and removes the plugin from the marketplace immediately after success.
-7. Polling or market refresh does not clear focused input or block clicks.
+4. `/install`, `/reviews`, and `/rules` use the same app shell and do not mention a central marketplace repository as an installation step.
+5. Theme switching between system/light/dark does not reset route state or freeze controls.
+6. Search, category filters, warning filter, pagination, and copy buttons respond under rapid clicking.
+7. Admin delete requires `MARKETPLACE_ADMIN_PASSWORD` or `ADMIN_PASSWORD` and removes the plugin from the marketplace immediately after success.
+8. Polling or market refresh does not clear focused input or block clicks.
+9. The five-step progress animation advances as a light segment from the previous node to the current node.
 
 ## Automated Coverage
 
@@ -38,6 +35,7 @@ The Playwright suite in `tests/visual-interaction.spec.ts` covers:
 - Repeated theme/filter/category/copy/detail-route clicks.
 - Invalid submit validation and successful submit feedback.
 - Admin delete UI feedback with mocked API.
+- Usage page copy that focuses on installing individual plugins for Desktop and CLI users.
 
 ## Repeated-Click Stress Thresholds
 
@@ -54,7 +52,7 @@ A run passes only when:
 
 Capture and inspect:
 
-- 1586 x 992 desktop, matching the supplied reference image dimensions.
+- 1440px or wider desktop.
 - 768 x 1024 tablet.
 - 375 x 812 mobile.
 
@@ -66,18 +64,58 @@ Check every viewport for:
 - Form labels, helper text, and error text remain readable.
 - Plugin cards keep buttons visible and tappable.
 - Toast does not hide primary actions.
+- Progress light follows the active detection segment and does not run unrelated loop animations.
 
 ## Manual API Checks
 
-For the live Docker/PostgreSQL stack, verify admin deletion with a temporary fixture:
+For the live Docker/PostgreSQL stack:
 
-1. Insert or create a temporary plugin row with `source.type = "shared-repository"`.
-2. Start the service with `MARKETPLACE_ADMIN_PASSWORD` set.
-3. Confirm the fixture appears in `GET /api/market`.
-4. Call `DELETE /api/plugins/<name>` with `{ "adminPassword": "..." }`.
-5. Confirm `GET /api/market` no longer returns the fixture.
+```bash
+curl -sS http://127.0.0.1:8787/api/health
+curl -sS http://127.0.0.1:8787/api/market
+curl -sS -X POST http://127.0.0.1:8787/api/check \
+  -H 'Content-Type: application/json' \
+  --data '{"repositoryUrl":"https://github.com/callstackincubator/agent-skills"}'
+```
+
+Verify failed submissions are persisted as failed:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/api/check \
+  -H 'Content-Type: application/json' \
+  --data '{"repositoryUrl":"https://github.com/not-a-real-owner/not-a-real-repo"}'
+```
+
+Verify admin deletion with a temporary fixture or known test plugin:
+
+1. Start the service with `MARKETPLACE_ADMIN_PASSWORD` set.
+2. Confirm the plugin appears in `GET /api/market`.
+3. Call `DELETE /api/plugins/<name>` with `{ "adminPassword": "..." }`.
+4. Confirm `GET /api/market` no longer returns the plugin.
+
+## Docker / GHCR Checks
+
+Before publishing an image:
+
+```bash
+docker build -t ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag> .
+docker run --rm ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag> node --check server.mjs
+```
+
+After pushing:
+
+```bash
+docker pull ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag>
+```
+
+For compose deployment with the published image:
+
+```bash
+MARKETPLACE_IMAGE=ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag> \
+  docker compose up -d --no-build mwe-codex-marketplace
+```
 
 ## Known Tooling Notes
 
-- Browser/IAB runtime was not available in this session, so validation uses Playwright Chromium.
-- `view_image` was blocked by a sandbox helper error, so screenshot files are preserved outside the repo during QA and referenced in the final report.
+- Browser/IAB runtime may be unavailable in some Codex sessions; use Playwright Chromium as fallback and record that choice.
+- If `view_image` is blocked by a sandbox helper error, preserve Playwright screenshots under `/tmp` and summarize the evidence in the final response.

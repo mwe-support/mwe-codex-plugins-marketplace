@@ -21,7 +21,7 @@ services:
   mwe-codex-marketplace:
     build:
       context: .
-    image: mwe-codex-plugins-marketplace:local
+    image: ${MARKETPLACE_IMAGE:-mwe-codex-plugins-marketplace:local}
     container_name: marvel-local-server-mwe-codex-marketplace
     restart: unless-stopped
     depends_on:

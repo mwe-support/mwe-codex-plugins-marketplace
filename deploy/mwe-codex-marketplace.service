@@ -1,5 +1,5 @@
 [Unit]
-Description=MWE Codex Plugin Marketplace web container
+Description=MWE Codex Plugin Sharing Marketplace web container
 After=default.target
 
 [Service]
