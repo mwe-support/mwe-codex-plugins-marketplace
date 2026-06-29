@@ -115,7 +115,7 @@ test('dashboard matches the accepted structure without overflow', async ({ page 
   await expect(page.getByText('最近检测记录')).toBeVisible();
   await expect(page.locator('[data-beijing-time]').first()).toContainText(/\d{4}\/\d{2}\/\d{2}/);
   await expect(page.locator('.progress-step')).toHaveCount(5);
-  await expect(page.locator('.progress-beam')).toHaveCount(1);
+  await expect(page.locator('.progress-light')).toHaveCount(1);
   await expect(page.locator('.market-list .plugin-row')).toHaveCount(9);
   await expect(page.getByRole('button', { name: /下一页/ })).toBeEnabled();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

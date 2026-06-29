@@ -21,6 +21,7 @@ const state = {
     submitMessage: "",
     submitStage: "idle",
     submitStatus: "idle",
+    submitPulse: "a",
     deletePassword: "",
     deleteReason: "",
     deleteLoading: false,
@@ -304,8 +305,12 @@ async function loadMarket({ silent = false } = {}) {
 const detectionStages = ["received", "cloning", "validating", "extracting", "completed"];
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 function setSubmitStage(stage, status = "checking") {
+    const stageChanged = stage !== state.submitStage;
     state.submitStage = stage;
     state.submitStatus = status;
+    if (stageChanged && status === "checking" && stage !== "idle" && stage !== "received") {
+        state.submitPulse = state.submitPulse === "a" ? "b" : "a";
+    }
     syncSubmitUi();
 }
 function stageAdvanceDelay(_stage) {
@@ -515,6 +520,16 @@ function progressPercent() {
     const index = Math.max(0, detectionStages.indexOf(state.submitStage));
     return Math.round((index / (detectionStages.length - 1)) * 100);
 }
+function progressPulseStart() {
+    const progress = progressPercent();
+    if (progress <= 0)
+        return 0;
+    return Math.max(0, progress - 25);
+}
+function progressPulseSize() {
+    const progress = progressPercent();
+    return progress <= 0 ? 0 : 25;
+}
 function stepNodeContent(index, status) {
     if (status === "passed" || status === "warning")
         return icon("check");
@@ -544,8 +559,11 @@ function syncProgressDom() {
     if (!rail)
         return;
     rail.style.setProperty("--progress", `${progressPercent()}%`);
+    rail.style.setProperty("--pulse-start", `${progressPulseStart()}%`);
+    rail.style.setProperty("--pulse-size", `${progressPulseSize()}%`);
     rail.dataset.stage = state.submitStage;
     rail.dataset.status = state.submitStatus;
+    rail.dataset.pulse = state.submitPulse;
     progressSteps().forEach(([stage], index) => {
         const step = rail.querySelector(`[data-step="${stage}"]`);
         if (!step)
@@ -572,8 +590,8 @@ function syncSubmitUi() {
 }
 function progressRail() {
     return `
-    <div class="progress-rail" aria-label="检测进度" style="--progress: ${progressPercent()}%" data-stage="${safe(state.submitStage)}" data-status="${safe(state.submitStatus)}">
-      <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-beam"></span><span class="progress-particles"></span></span>
+    <div class="progress-rail" aria-label="检测进度" style="--progress: ${progressPercent()}%; --pulse-start: ${progressPulseStart()}%; --pulse-size: ${progressPulseSize()}%" data-stage="${safe(state.submitStage)}" data-status="${safe(state.submitStatus)}" data-pulse="${safe(state.submitPulse)}">
+      <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span><span class="progress-light"></span></span>
       ${progressSteps()
         .map(([stage, title, detail], index) => {
         const status = stepState(stage, state.submitStatus);
@@ -954,6 +972,7 @@ function clearSubmitForm({ deferRender = false } = {}) {
     state.submitLoading = false;
     state.submitStage = "idle";
     state.submitStatus = "idle";
+    state.submitPulse = state.submitPulse === "a" ? "b" : "a";
     syncSubmitError("");
     syncSubmitUi();
     if (deferRender) {
