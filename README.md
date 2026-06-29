@@ -26,13 +26,49 @@ PORT=8787 node server.mjs
 
 ## Docker Compose 运行
 
+默认模板文件是 `docker-compose.yml`。默认 Web 镜像使用已经发布到 GHCR 的预构建镜像，不进行本地构建：
+
 ```bash
-docker compose up -d --build mwe-codex-marketplace
+docker compose pull
+docker compose up -d
 ```
 
 服务地址：`http://127.0.0.1:8787/`。
 
 PostgreSQL 会通过 compose 启动；Web 容器启动时会自动执行 `scripts/db-migrate.mjs`。
+
+如需固定版本或切换镜像，可在 `.env` 设置：
+
+```dotenv
+MARKETPLACE_IMAGE=ghcr.io/mwe-support/mwe-codex-plugins-marketplace:4b22691
+```
+
+## Cloudflare Tunnel
+
+1. 在 Cloudflare Zero Trust 创建 Tunnel。
+2. 在 Tunnel 的 Public Hostname 中配置你的域名，并把 Service 指向 compose 内部服务：
+
+```text
+http://mwe-codex-marketplace:80
+```
+
+3. 把 Cloudflare tunnel token 放到本地 `.env`，不要提交：
+
+```dotenv
+CLOUDFLARE_TUNNEL_TOKEN=你的-token
+```
+
+4. 启动包含 tunnel 的 profile：
+
+```bash
+docker compose --profile tunnel up -d
+```
+
+检查 tunnel 日志：
+
+```bash
+docker logs marvel-local-server-mwe-codex-marketplace-tunnel
+```
 
 ## GHCR 镜像
 
@@ -40,21 +76,6 @@ PostgreSQL 会通过 compose 启动；Web 容器启动时会自动执行 `script
 
 ```text
 ghcr.io/mwe-support/mwe-codex-plugins-marketplace
-```
-
-本地构建并打标签：
-
-```bash
-docker build -t ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest \
-  -t ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag> .
-```
-
-使用已发布镜像运行 compose：
-
-```bash
-docker pull ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest
-MARKETPLACE_IMAGE=ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest \
-  docker compose up -d --no-build mwe-codex-marketplace
 ```
 
 推送 GHCR 需要当前 Docker 客户端已登录 `ghcr.io`，且账号对 `mwe-support/mwe-codex-plugins-marketplace` 有 package 写入权限。
@@ -68,7 +89,7 @@ MARKETPLACE_IMAGE=ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest \
 - `MARKETPLACE_ADMIN_PASSWORD`：管理员删除插件的密码。
 - `ADMIN_PASSWORD`：兼容旧部署的管理员密码变量。
 - `CLOUDFLARE_TUNNEL_TOKEN`：可选 Cloudflare Tunnel token。
-- `MARKETPLACE_IMAGE`：compose 使用的 Web 镜像名，默认 `mwe-codex-plugins-marketplace:local`。
+- `MARKETPLACE_IMAGE`：compose 使用的 Web 镜像名，默认 `ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest`。
 
 普通用户上传插件不需要 `GITHUB_TOKEN` 或 `MARKETPLACE_GITHUB_REPOSITORY`。只有发布 GHCR 镜像或操作远端 GitHub 仓库时才需要外部 GitHub 权限。
 

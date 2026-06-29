@@ -19,9 +19,7 @@ services:
       start_period: 10s
 
   mwe-codex-marketplace:
-    build:
-      context: .
-    image: ${MARKETPLACE_IMAGE:-mwe-codex-plugins-marketplace:local}
+    image: ${MARKETPLACE_IMAGE:-ghcr.io/mwe-support/mwe-codex-plugins-marketplace:latest}
     container_name: marvel-local-server-mwe-codex-marketplace
     restart: unless-stopped
     depends_on:

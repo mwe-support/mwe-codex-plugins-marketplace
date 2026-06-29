@@ -64,7 +64,7 @@ When adding a page, update this list and verify the new page uses the same theme
 
 ## Deployment Rules
 
-- The compose service can build locally or run a prebuilt image through `MARKETPLACE_IMAGE`.
+- The default `docker-compose.yml` runs the prebuilt GHCR image through `MARKETPLACE_IMAGE`; use explicit Docker build commands only for release work.
 - Published images use `ghcr.io/mwe-support/mwe-codex-plugins-marketplace`.
 - Do not commit `.env`, Cloudflare tunnel tokens, admin passwords, database passwords for production, or GitHub/GHCR tokens.
 - Ordinary plugin submission does not require `GITHUB_TOKEN`; GHCR publishing does require Docker to be authenticated to `ghcr.io` with package write permission.
@@ -81,4 +81,4 @@ Before committing UI/API/deployment changes, check:
 - `GET /api/market` reflects approved and failed checks directly from current PostgreSQL state.
 - 375px, 768px, 1024px, and desktop widths have no horizontal overflow, clipped buttons, or overlapping text.
 - `npm run check` passes.
-- Docker image builds successfully before pushing to GHCR.
+- Docker image builds successfully before publishing a new GHCR release tag.

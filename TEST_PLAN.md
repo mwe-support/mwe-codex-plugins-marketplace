@@ -112,7 +112,7 @@ For compose deployment with the published image:
 
 ```bash
 MARKETPLACE_IMAGE=ghcr.io/mwe-support/mwe-codex-plugins-marketplace:<tag> \
-  docker compose up -d --no-build mwe-codex-marketplace
+  docker compose up -d mwe-codex-marketplace
 ```
 
 ## Known Tooling Notes
