@@ -149,6 +149,9 @@ function defaultBranch(plugin) {
 function encodeBranchPath(branch) {
     return branch.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }
+function repositorySourceUrl(plugin) {
+    return normalizeRepositoryUrl(plugin.repositoryUrl);
+}
 function repositoryTreeUrl(plugin) {
     const root = normalizeRepositoryUrl(plugin.repositoryUrl);
     const branch = defaultBranch(plugin);
@@ -687,7 +690,7 @@ function pluginRow(plugin) {
         </span>
       </a>
       <div class="plugin-actions">
-        <button class="secondary-button" type="button" data-action="copy-repo" data-copy="${safe(repositoryTreeUrl(plugin))}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
+        <button class="secondary-button" type="button" data-action="copy-repo" data-copy="${safe(repositorySourceUrl(plugin))}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
         <button class="secondary-button" type="button" data-action="copy-cli" data-copy="${safe(cliCommand(plugin))}" data-copy-label="CLI 安装命令已复制">${icon("terminal", "复制 CLI 命令")}</button>
       </div>
     </article>
@@ -818,12 +821,12 @@ function staticPage(kind) {
     const installBody = `
     <div class="usage-grid">
       <article class="usage-card glass-panel">
-        <div class="usage-head">${icon("monitor")}<div><strong>Codex Desktop 用户</strong><p>适合在桌面端浏览插件、复制单个插件的默认分支链接，并在 Codex Desktop 中安装使用。</p></div></div>
+        <div class="usage-head">${icon("monitor")}<div><strong>Codex Desktop 用户</strong><p>适合在桌面端浏览插件、复制单个插件的 GitHub 仓库来源，并在 Codex Desktop 中安装使用。</p></div></div>
         <ol class="usage-steps">
           <li><span>1</span><div><strong>打开插件市场</strong><p>进入市场首页，按名称、作者、分类或能力搜索你需要的插件。</p><a class="secondary-button" href="/" data-link>${icon("store", "前往插件市场")}</a></div></li>
           <li><span>2</span><div><strong>查看插件详情</strong><p>确认插件已通过检测，阅读说明、能力标签、来源仓库和同步状态。</p></div></li>
-          <li><span>3</span><div><strong>复制默认分支链接</strong><p>在插件卡片或详情页点击“复制仓库链接”，复制的是该插件自己的 GitHub 默认分支链接，不是本网站仓库。</p></div></li>
-          <li><span>4</span><div><strong>安装并使用插件</strong><p>在 Codex Desktop 的插件安装入口粘贴插件默认分支链接。安装完成后，按插件说明在会话中调用它的能力。</p></div></li>
+          <li><span>3</span><div><strong>复制仓库来源</strong><p>在插件卡片或详情页点击“复制仓库链接”，复制的是可被 Codex Desktop clone 的 GitHub 根仓库 URL，不是 /tree 分支浏览页。</p></div></li>
+          <li><span>4</span><div><strong>安装并使用插件</strong><p>在 Codex Desktop 的插件安装入口粘贴插件仓库来源。默认分支会跟随仓库远端 HEAD，页面标签会显示当前检测到的默认分支。安装完成后，按插件说明在会话中调用它的能力。</p></div></li>
         </ol>
       </article>
       <article class="usage-card glass-panel">
@@ -851,7 +854,7 @@ function staticPage(kind) {
       <section class="content-card glass-panel">
         <a href="/" data-link class="secondary-button compact">${icon("arrow-left", "返回市场")}</a>
         <h1>${safe(title)}</h1>
-        <p>${kind === "install" ? "根据你使用的是 Codex Desktop 还是 Codex CLI，选择具体插件，复制该插件的默认分支链接或 CLI 安装命令并开始使用。" : kind === "reviews" ? "这里汇总最近的插件检测与同步状态。" : "了解插件进入市场前会经过哪些检测，以及哪些情况需要人工复核。"}</p>
+        <p>${kind === "install" ? "根据你使用的是 Codex Desktop 还是 Codex CLI，选择具体插件，复制该插件的 GitHub 仓库来源或 CLI 安装命令并开始使用。" : kind === "reviews" ? "这里汇总最近的插件检测与同步状态。" : "了解插件进入市场前会经过哪些检测，以及哪些情况需要人工复核。"}</p>
         ${body}
       </section>
     </main>
@@ -886,7 +889,7 @@ function detailPage(name) {
           ${statusBadge(plugin)}
         </div>
         <div class="detail-actions">
-          <button class="primary-button" type="button" data-copy="${safe(repositoryTreeUrl(plugin))}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
+          <button class="primary-button" type="button" data-copy="${safe(repositorySourceUrl(plugin))}" data-copy-label="仓库链接已复制">${icon("link", "复制仓库链接")}</button>
           <button class="secondary-button" type="button" data-copy="${safe(cliCommand(plugin))}" data-copy-label="CLI 安装命令已复制">${icon("terminal", "复制 CLI 命令")}</button>
         </div>
         <section>

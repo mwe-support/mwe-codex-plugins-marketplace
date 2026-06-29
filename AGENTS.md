@@ -43,7 +43,7 @@ When adding a page, update this list and verify the new page uses the same theme
 ## Marketplace Copy Rules
 
 - Use `MWE Codex插件共享市场` for the product/brand title.
-- The repository link action copies the plugin source GitHub tree URL for the detected default branch, such as `https://github.com/owner/repo/tree/dev`.
+- The repository link action copies the plugin source GitHub root URL, such as `https://github.com/owner/repo`, because Codex Desktop clones that value as a Git remote and cannot clone GitHub `/tree/<branch>` browser URLs.
 - The CLI action copies `codex plugin marketplace add <repository-url> --ref <default-branch>`.
 - Keep the canonical `repositoryUrl` as the GitHub root URL and store detected branch metadata in `releaseTag`, `defaultBranch`, `headSha`, `repositoryTreeUrl`, `source`, and metadata JSON fields.
 - Do not tell users to add this website repository as a central marketplace source.
@@ -69,6 +69,7 @@ When adding a page, update this list and verify the new page uses the same theme
 - Published images use `ghcr.io/mwe-support/mwe-codex-plugins-marketplace`.
 - Do not commit `.env`, Cloudflare tunnel tokens, admin passwords, database passwords for production, or GitHub/GHCR tokens.
 - Ordinary plugin submission does not require `GITHUB_TOKEN`; GHCR publishing does require Docker to be authenticated to `ghcr.io` with package write permission.
+- `GITHUB_PROXY_PREFIX` is an explicit GitHub mirror routing setting, not a fallback. Leave it empty for direct GitHub; set it to a prefix such as `https://gh-proxy.com/` to make all server-side git reads use that proxy while preserving canonical GitHub URLs in user-facing data. After changing it in `.env`, redeploy with `docker compose --profile tunnel up -d` and verify `/api/github-health` returns `source: "github-proxy"`.
 
 ## Verification Checklist
 

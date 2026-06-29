@@ -16,7 +16,7 @@ const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 10);
 const CLONE_TIMEOUT_MS = Number(process.env.PLUGIN_CLONE_TIMEOUT_MS || 45_000);
 const GITHUB_HEALTH_TIMEOUT_MS = Number(process.env.GITHUB_HEALTH_TIMEOUT_MS || 10_000);
 const GITHUB_HEALTH_REPOSITORY = process.env.GITHUB_HEALTH_REPOSITORY || 'https://github.com/upstash/context7';
-const GITHUB_PROXY_PREFIX = normalizeGithubProxyPrefix(process.env.GITHUB_PROXY_PREFIX || 'https://gh-proxy.com/');
+const GITHUB_PROXY_PREFIX = normalizeGithubProxyPrefix(process.env.GITHUB_PROXY_PREFIX || '');
 const MAX_WALK_FILES = Number(process.env.PLUGIN_WALK_FILE_LIMIT || 5000);
 const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 
@@ -66,7 +66,8 @@ function proxiedGithubUrl(normalizedUrl) {
 }
 
 function githubUrlCandidates(normalizedUrl) {
-  return [...new Set([normalizedUrl, proxiedGithubUrl(normalizedUrl)].filter(Boolean))];
+  const proxied = proxiedGithubUrl(normalizedUrl);
+  return [proxied || normalizedUrl];
 }
 
 function gitSourceLabel(url, normalizedUrl) {
@@ -316,7 +317,7 @@ async function cloneRepository(normalizedUrl) {
       normalizedUrl,
       beforeAttempt: () => fs.rm(repoPath, { recursive: true, force: true }),
     });
-    if (cloned.source !== 'github') console.warn(`[github-clone:fallback] repo=${normalizedUrl} source=${cloned.source} latencyMs=${cloned.latencyMs}`);
+    if (cloned.source !== 'github') console.warn(`[github-clone:proxy] repo=${normalizedUrl} source=${cloned.source} latencyMs=${cloned.latencyMs}`);
     return { tempRoot, repoPath, source: cloned.source };
   } catch (error) {
     await fs.rm(tempRoot, { recursive: true, force: true });
