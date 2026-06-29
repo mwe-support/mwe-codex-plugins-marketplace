@@ -223,11 +223,11 @@ test('install page explains Desktop and CLI usage without central marketplace li
   await expect(page.getByRole('heading', { name: '如何使用插件市场' })).toBeVisible();
   await expect(page.getByText('Codex Desktop 用户')).toBeVisible();
   await expect(page.getByText('打开插件市场')).toBeVisible();
-  await expect(page.getByText('复制仓库来源')).toBeVisible();
-  await expect(page.getByText('在 Codex Desktop 的插件安装入口粘贴插件仓库来源')).toBeVisible();
+  await expect(page.getByText('复制 Desktop 安装来源')).toBeVisible();
+  await expect(page.getByText('在 Codex Desktop 的插件安装入口粘贴 Desktop 来源')).toBeVisible();
   await expect(page.getByText('Codex CLI 用户')).toBeVisible();
   await expect(page.getByText('复制 CLI 安装命令')).toBeVisible();
-  await expect(page.getByText('codex plugin marketplace add <插件仓库链接> --ref <默认分支>')).toBeVisible();
+  await expect(page.getByText('codex plugin marketplace add <安装来源> --ref <默认分支>')).toBeVisible();
   await expect(page.getByText('mwe-support/mwe-codex-plugins-marketplace')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /复制 Marketplace/ })).toHaveCount(0);
   await expect(page.getByText('GitHub Action')).toHaveCount(0);

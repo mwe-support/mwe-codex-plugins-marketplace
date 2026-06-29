@@ -43,16 +43,17 @@ When adding a page, update this list and verify the new page uses the same theme
 ## Marketplace Copy Rules
 
 - Use `MWE Codex插件共享市场` for the product/brand title.
-- The repository link action copies the plugin source GitHub root URL, such as `https://github.com/owner/repo`, because Codex Desktop clones that value as a Git remote and cannot clone GitHub `/tree/<branch>` browser URLs.
-- The CLI action copies `codex plugin marketplace add <repository-url> --ref <default-branch>`.
-- Keep the canonical `repositoryUrl` as the GitHub root URL and store detected branch metadata in `releaseTag`, `defaultBranch`, `headSha`, `repositoryTreeUrl`, `source`, and metadata JSON fields.
+- The source repository action copies the plugin source GitHub root URL for code review and provenance.
+- The Desktop install action copies only a verified marketplace/distribution repository whose root contains `.agents/plugins/marketplace.json`; if no such source is known, disable the action and explain why.
+- The CLI action uses the server-generated `cliInstallCommand`, based on the verified Desktop source plus `--ref <default-branch>` and optional `--sparse`.
+- Keep canonical `repositoryUrl` as the submitted/source GitHub root URL, and store install metadata in `installKind`, `sourceRepositoryUrl`, `distributionRepositoryUrl`, `desktopInstallable`, `desktopSourceUrl`, `desktopRef`, `desktopSparsePath`, `cliInstallCommand`, `releaseTag`, `defaultBranch`, `headSha`, `repositoryTreeUrl`, `source`, and metadata JSON fields.
 - Do not tell users to add this website repository as a central marketplace source.
 - Keep copy concise: this site is for quick sharing, detection, discovery, and installation of individual plugins, not a marketing landing page.
 
 ## Interaction Rules
 
 - Ordinary uploads must not create GitHub issues or depend on GitHub Actions.
-- `POST /api/check` is the upload path: validate the URL, clone/read the public repository, detect Codex plugin content, write a check record, and upsert passing plugins.
+- `POST /api/check` is the upload path: validate the URL, clone/read the public repository, detect Codex plugin content, separately detect Desktop marketplace install compatibility, write a check record, and upsert passing plugins.
 - Detection should be permissive enough for real community repositories: missing Release, screenshots, or optional metadata should become warnings, not hard failures.
 - Hard failures should be reserved for inaccessible repositories, invalid URLs, unreadable/invalid plugin manifests, dangerous content, or no recognizable Codex plugin entry.
 - Failed checks must be visible as failed in `/api/market`; never leave failed uploads stuck as pending/reviewing.

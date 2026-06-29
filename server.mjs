@@ -107,6 +107,98 @@ function repositoryRefMetadata(normalizedUrl, defaultBranch, headSha) {
   };
 }
 
+function shellArg(value) {
+  const text = String(value || '');
+  if (/^[A-Za-z0-9_./:@-]+$/.test(text)) return text;
+  return `'${text.replace(/'/g, `'\''`)}'`;
+}
+
+function cliMarketplaceCommand(sourceUrl, ref, sparsePath = '') {
+  const parts = ['codex', 'plugin', 'marketplace', 'add', shellArg(sourceUrl)];
+  if (ref && ref !== 'HEAD') parts.push('--ref', shellArg(ref));
+  if (sparsePath) parts.push('--sparse', shellArg(sparsePath));
+  return parts.join(' ');
+}
+
+function marketplacePluginSourcePath(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  if (typeof entry.source === 'string') return entry.source;
+  if (entry.source && typeof entry.source === 'object') return entry.source.path || entry.source.url || '';
+  return '';
+}
+
+async function inspectSupportedMarketplaceRoot(repoPath) {
+  const manifestRelativePath = '.agents/plugins/marketplace.json';
+  const manifestPath = path.join(repoPath, manifestRelativePath);
+  if (!(await existsSafe(manifestPath))) {
+    return { ok: false, manifestPath: manifestRelativePath, reason: '根目录没有 .agents/plugins/marketplace.json。' };
+  }
+  let manifest;
+  try {
+    manifest = await readJsonFile(manifestPath);
+  } catch {
+    return { ok: false, manifestPath: manifestRelativePath, reason: '.agents/plugins/marketplace.json 不是可读取的 JSON。' };
+  }
+  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.plugins) || !manifest.plugins.length) {
+    return { ok: false, manifestPath: manifestRelativePath, reason: '.agents/plugins/marketplace.json 缺少 plugins 列表。' };
+  }
+
+  const warnings = [];
+  const pluginEntries = [];
+  for (const entry of manifest.plugins.slice(0, 20)) {
+    const sourcePath = marketplacePluginSourcePath(entry);
+    if (!sourcePath || /^https?:/i.test(sourcePath)) {
+      warnings.push({ severity: 'low', path: manifestRelativePath, description: `插件 ${entry?.name || 'unknown'} 没有本地 source.path，安装前建议复核。` });
+      continue;
+    }
+    const pluginRoot = path.resolve(repoPath, sourcePath);
+    const repoRoot = path.resolve(repoPath);
+    const manifestFile = path.join(pluginRoot, '.codex-plugin', 'plugin.json');
+    if (!pluginRoot.startsWith(`${repoRoot}${path.sep}`) || !(await existsSafe(manifestFile))) {
+      warnings.push({ severity: 'medium', path: manifestRelativePath, description: `插件 ${entry?.name || sourcePath} 的 source 未指向有效 .codex-plugin/plugin.json。` });
+    }
+    pluginEntries.push({ name: entry?.name || path.basename(sourcePath), sourcePath, category: entry?.category || 'Codex Plugin' });
+  }
+
+  return {
+    ok: true,
+    manifest,
+    manifestPath: manifestRelativePath,
+    marketplaceName: manifest.name || null,
+    displayName: manifest.interface?.displayName || manifest.displayName || manifest.name || null,
+    pluginEntries,
+    warnings,
+  };
+}
+
+function installCompatibility({ kind, sourceRepositoryUrl, repositoryRef, marketplaceInfo = null, distribution = null, installWarnings = [] }) {
+  const desktopSourceUrl = distribution?.repositoryUrl || (kind === 'marketplace' ? sourceRepositoryUrl : '');
+  const desktopRef = distribution?.defaultBranch || (kind === 'marketplace' ? repositoryRef.defaultBranch : '');
+  const desktopSparsePath = distribution?.sparsePath || '';
+  const desktopInstallable = Boolean(desktopSourceUrl);
+  const distributionRepositoryUrl = distribution?.repositoryUrl || (kind === 'marketplace' ? sourceRepositoryUrl : null);
+  return {
+    installKind: kind,
+    sourceRepositoryUrl,
+    distributionRepositoryUrl,
+    desktopInstallable,
+    desktopSourceUrl,
+    desktopRef,
+    desktopSparsePath,
+    cliInstallCommand: desktopInstallable ? cliMarketplaceCommand(desktopSourceUrl, desktopRef, desktopSparsePath) : '',
+    installWarnings,
+    marketplaceName: distribution?.marketplaceName || marketplaceInfo?.marketplaceName || null,
+  };
+}
+
+function withInstallCompatibility(plugin, compatibility) {
+  return {
+    ...plugin,
+    ...compatibility,
+    source: { ...(plugin.source || {}), install: compatibility },
+  };
+}
+
 function withRepositoryRef(plugin, ref) {
   const metadata = repositoryRefMetadata(plugin.repositoryUrl, ref.defaultBranch, ref.headSha);
   return {
@@ -277,7 +369,10 @@ async function walkRepository(root) {
 
 function manifestPaths(files) {
   const strict = files.filter((file) => file.endsWith('/.codex-plugin/plugin.json') || file === '.codex-plugin/plugin.json');
-  if (strict.length) return strict;
+  if (strict.length) {
+    const minDepth = Math.min(...strict.map((file) => file.split('/').length));
+    return strict.filter((file) => file.split('/').length === minDepth);
+  }
   return files.filter((file) => file.endsWith('plugin.json') && !file.includes('node_modules/')).slice(0, 5);
 }
 
@@ -349,6 +444,154 @@ async function readClonedRepositoryRef(repoPath, normalizedUrl) {
   return repositoryRefMetadata(normalizedUrl, defaultBranch, headSha);
 }
 
+function nestedMarketplaceWarnings(files) {
+  return files
+    .filter((file) => file.endsWith('marketplace.json') && file !== '.agents/plugins/marketplace.json')
+    .slice(0, 5)
+    .map((file) => ({
+      severity: 'low',
+      path: file,
+      description: `${file} 只作为分发线索记录；当前 Codex Desktop 需要仓库根目录的 .agents/plugins/marketplace.json。`,
+    }));
+}
+
+function scoreDistributionCandidate(url, context) {
+  const lower = `${url} ${context}`.toLowerCase();
+  let score = 0;
+  if (lower.includes('marketplace')) score += 6;
+  if (lower.includes('lazycodex') || lower.includes('codex marketplace')) score += 5;
+  if (lower.includes('distribution') || lower.includes('分发')) score += 3;
+  if (lower.includes('install') || lower.includes('安装')) score += 1;
+  if (lower.includes('/openai/codex')) score -= 8;
+  if (lower.includes('/issues/') || lower.includes('/pull/')) score -= 6;
+  return score;
+}
+
+async function findDistributionCandidates(repoPath, files, normalizedUrl) {
+  const candidates = new Map();
+  const docs = files
+    .filter((file) => /(^|\/)(README|MARKETPLACE|AGENTS|CONTRIBUTING|package)\.(md|json)$/i.test(file))
+    .slice(0, 80);
+  for (const file of docs) {
+    const absolute = path.join(repoPath, file);
+    let stat;
+    try {
+      stat = await fs.stat(absolute);
+    } catch {
+      continue;
+    }
+    if (stat.size > 128 * 1024) continue;
+    let text = '';
+    try {
+      text = await fs.readFile(absolute, 'utf8');
+    } catch {
+      continue;
+    }
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const matches = line.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/g);
+      for (const match of matches) {
+        const candidate = normalizeRepositoryUrl(`https://github.com/${match[1]}/${match[2]}`);
+        if (candidate === normalizedUrl) continue;
+        const context = [lines[index - 1] || '', line, lines[index + 1] || ''].join(' ');
+        const score = scoreDistributionCandidate(candidate, context);
+        if (score <= 0) continue;
+        const previous = candidates.get(candidate) || { repositoryUrl: candidate, score: 0, sourcePath: file };
+        previous.score = Math.max(previous.score, score);
+        previous.sourcePath = previous.score >= score ? previous.sourcePath : file;
+        candidates.set(candidate, previous);
+      }
+    });
+  }
+  return [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+async function validateDistributionRepository(candidate) {
+  const { tempRoot, repoPath } = await cloneRepository(candidate.repositoryUrl);
+  try {
+    const repositoryRef = await readClonedRepositoryRef(repoPath, candidate.repositoryUrl);
+    const marketplaceInfo = await inspectSupportedMarketplaceRoot(repoPath);
+    if (!marketplaceInfo.ok) return null;
+    return {
+      repositoryUrl: candidate.repositoryUrl,
+      defaultBranch: repositoryRef.defaultBranch,
+      headSha: repositoryRef.headSha,
+      marketplaceName: marketplaceInfo.marketplaceName,
+      sparsePath: '',
+      manifestPath: marketplaceInfo.manifestPath,
+      sourcePath: candidate.sourcePath,
+      warnings: marketplaceInfo.warnings || [],
+    };
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function resolveInstallCompatibility({ repoPath, files, normalizedUrl, repositoryRef, marketplaceInfo }) {
+  const installWarnings = [...nestedMarketplaceWarnings(files), ...(marketplaceInfo?.warnings || [])];
+  if (marketplaceInfo?.ok) {
+    return installCompatibility({ kind: 'marketplace', sourceRepositoryUrl: normalizedUrl, repositoryRef, marketplaceInfo, installWarnings });
+  }
+
+  const candidates = await findDistributionCandidates(repoPath, files, normalizedUrl);
+  for (const candidate of candidates) {
+    try {
+      const distribution = await validateDistributionRepository(candidate);
+      if (distribution) {
+        return installCompatibility({
+          kind: 'plugin-source',
+          sourceRepositoryUrl: normalizedUrl,
+          repositoryRef,
+          distribution,
+          installWarnings: [
+            ...installWarnings,
+            { severity: 'low', path: candidate.sourcePath, description: `源码仓库不是 Desktop marketplace，已识别可安装分发仓库 ${distribution.repositoryUrl}。` },
+            ...(distribution.warnings || []),
+          ],
+        });
+      }
+    } catch (error) {
+      installWarnings.push({ severity: 'low', path: candidate.sourcePath, description: `候选分发仓库 ${candidate.repositoryUrl} 暂时无法验证：${error.message || '未知错误'}` });
+    }
+  }
+
+  return installCompatibility({
+    kind: 'plugin-source',
+    sourceRepositoryUrl: normalizedUrl,
+    repositoryRef,
+    installWarnings: [
+      ...installWarnings,
+      { severity: 'medium', path: '.codex-plugin/plugin.json', description: '检测到插件内容，但该仓库不是 Codex Desktop 可直接添加的 marketplace。' },
+    ],
+  });
+}
+
+async function buildPluginFromMarketplaceEntry({ entry, marketplaceInfo, normalizedUrl, owner, repo, repositoryRef, compatibility, now }) {
+  const pluginName = slugify(entry.name || repo);
+  return withInstallCompatibility(withRepositoryRef({
+    name: pluginName,
+    displayName: entry.name || marketplaceInfo.displayName || repo,
+    description: `${entry.name || repo} Codex marketplace 插件。`,
+    longDescription: `${entry.name || repo} 来自 ${marketplaceInfo.displayName || marketplaceInfo.marketplaceName || repo} marketplace。`,
+    author: owner,
+    avatarUrl: `https://github.com/${owner}.png?size=96`,
+    category: entry.category || 'Codex Plugin',
+    tags: ['Marketplace', '结构检测通过'],
+    capabilities: ['Codex Plugin'],
+    version: '0.1.0',
+    releaseTag: repositoryRef.defaultBranch,
+    repositoryUrl: normalizedUrl,
+    verifiedStatus: 'verified',
+    syncStatus: 'synced',
+    syncTimestamp: now,
+    installPolicy: 'AVAILABLE',
+    featured: false,
+    source: { type: 'shared-repository', url: normalizedUrl, manifestPath: marketplaceInfo.manifestPath, marketplaceSource: entry.sourcePath },
+    review: { status: 'approved', reviewedAt: now, reviewer: 'server-detector', method: 'marketplace-root-detection' },
+    securityScan: { status: marketplaceInfo.warnings?.length ? 'warnings' : 'passed', blocked: false, findings: marketplaceInfo.warnings || [], scannedAt: now },
+  }, repositoryRef), compatibility);
+}
+
 async function refreshExistingPlugins(normalizedUrl, plugins) {
   let ref;
   try {
@@ -389,24 +632,22 @@ async function checkGithubRead(repositoryUrl = GITHUB_HEALTH_REPOSITORY) {
 async function detectPlugins(repositoryUrl) {
   const { owner, repo, normalizedUrl } = parseGithubRepositoryUrl(repositoryUrl);
   const existingPlugins = (await findPluginsByRepositoryFromDb(normalizedUrl))?.filter((plugin) => plugin.source?.type === 'shared-repository');
-  if (existingPlugins?.length) {
-    const plugins = await refreshExistingPlugins(normalizedUrl, existingPlugins);
-    return { normalizedUrl, owner, repo, duplicate: true, plugins, warnings: [] };
-  }
   const existing = await findPluginByRepositoryFromDb(normalizedUrl);
-  if (existing?.source?.type === 'shared-repository') {
-    const plugins = await refreshExistingPlugins(normalizedUrl, [existing]);
-    return { normalizedUrl, owner, repo, duplicate: true, plugins, warnings: [] };
-  }
+  const duplicate = Boolean(existingPlugins?.length || existing?.source?.type === 'shared-repository');
 
   const { tempRoot, repoPath } = await cloneRepository(normalizedUrl);
   try {
     const repositoryRef = await readClonedRepositoryRef(repoPath, normalizedUrl);
     const files = await walkRepository(repoPath);
-    const manifests = manifestPaths(files);
+    const marketplaceInfo = await inspectSupportedMarketplaceRoot(repoPath);
+    const compatibility = await resolveInstallCompatibility({ repoPath, files, normalizedUrl, repositoryRef, marketplaceInfo });
+    const marketplaceManifestPaths = marketplaceInfo.ok
+      ? marketplaceInfo.pluginEntries.map((entry) => `${entry.sourcePath.replace(/^\.\//, '')}/.codex-plugin/plugin.json`).filter((file) => files.includes(file))
+      : [];
+    const manifests = marketplaceManifestPaths.length ? marketplaceManifestPaths : manifestPaths(files);
     const inferred = inferredPluginPaths(files);
-    if (!manifests.length && !inferred.skillFiles.length && !inferred.mcpFiles.length) {
-      throw httpError('没有找到 Codex 插件入口。请确认仓库包含 .codex-plugin/plugin.json、skills/*/SKILL.md 或 MCP 配置。', 422);
+    if (!manifests.length && !inferred.skillFiles.length && !inferred.mcpFiles.length && !marketplaceInfo.ok) {
+      throw httpError('没有找到 Codex 插件入口。请确认仓库包含 .codex-plugin/plugin.json、skills/*/SKILL.md、MCP 配置或 .agents/plugins/marketplace.json。', 422);
     }
 
     const plugins = [];
@@ -427,11 +668,11 @@ async function detectPlugins(repositoryUrl) {
         const missing = [];
         if (manifest.skills && !(await existsSafe(path.resolve(pluginRoot, manifest.skills)))) missing.push('skills 路径不存在');
         if (manifest.mcpServers && !(await existsSafe(path.resolve(pluginRoot, manifest.mcpServers)))) missing.push('mcpServers 路径不存在');
-        const findings = securityWarnings(files, manifest, manifestRelativePath);
+        const findings = [...securityWarnings(files, manifest, manifestRelativePath), ...(compatibility.installWarnings || [])];
         for (const item of missing) findings.push({ severity: 'low', path: manifestRelativePath, description: item });
         const tags = [...new Set([...stringList(manifest.keywords), iface.category, ...(missing.length ? ['需要复核'] : ['结构检测通过'])].filter(Boolean))];
         const capabilities = stringList(iface.capabilities).length ? stringList(iface.capabilities) : stringList(manifest.capabilities).length ? stringList(manifest.capabilities) : inferred.skillFiles.length ? ['Skill'] : inferred.mcpFiles.length ? ['MCP'] : ['Codex Plugin'];
-        plugins.push(withRepositoryRef({
+        plugins.push(withInstallCompatibility(withRepositoryRef({
           name: pluginName,
           displayName: iface.displayName || manifest.displayName || manifest.name || repo,
           description: iface.shortDescription || manifest.description || `${repo} Codex 插件仓库`,
@@ -458,11 +699,18 @@ async function detectPlugins(repositoryUrl) {
             rules: ['public GitHub repository cloned', 'Codex plugin entry discovered', 'non-critical issues recorded as warnings'],
           },
           securityScan: { status: findings.length ? 'warnings' : 'passed', blocked: false, findings, scannedAt: now },
-        }, repositoryRef));
+        }, repositoryRef), compatibility));
+      }
+    } else if (marketplaceInfo.ok) {
+      for (const entry of marketplaceInfo.pluginEntries.slice(0, 5)) {
+        plugins.push(await buildPluginFromMarketplaceEntry({ entry, marketplaceInfo, normalizedUrl, owner, repo, repositoryRef, compatibility, now }));
       }
     } else {
-      const findings = [{ severity: 'low', path: inferred.skillFiles[0] || inferred.mcpFiles[0], description: '未发现 .codex-plugin/plugin.json，已根据明显的 skill/MCP 结构推断为 Codex 插件。' }];
-      plugins.push(withRepositoryRef({
+      const findings = [
+        { severity: 'low', path: inferred.skillFiles[0] || inferred.mcpFiles[0], description: '未发现 .codex-plugin/plugin.json，已根据明显的 skill/MCP 结构推断为 Codex 插件。' },
+        ...(compatibility.installWarnings || []),
+      ];
+      plugins.push(withInstallCompatibility(withRepositoryRef({
         name: slugify(repo),
         displayName: repo,
         description: `${repo} 包含 Codex skill 或 MCP 插件结构。`,
@@ -483,9 +731,9 @@ async function detectPlugins(repositoryUrl) {
         source: { type: 'shared-repository', url: normalizedUrl, inferredFrom: inferred.skillFiles[0] || inferred.mcpFiles[0] },
         review: { status: 'approved', reviewedAt: now, reviewer: 'server-detector', method: 'relaxed-web-detection' },
         securityScan: { status: 'warnings', blocked: false, findings, scannedAt: now },
-      }, repositoryRef));
+      }, repositoryRef), compatibility));
     }
-    return { normalizedUrl, owner, repo, duplicate: false, plugins, warnings: plugins.flatMap((plugin) => plugin.securityScan.findings || []) };
+    return { normalizedUrl, owner, repo, duplicate, plugins, warnings: plugins.flatMap((plugin) => plugin.securityScan.findings || []) };
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

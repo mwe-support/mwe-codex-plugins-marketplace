@@ -45,6 +45,12 @@ export function normalizeRepositoryUrl(value) {
 function rowToPlugin(row) {
   const metadata = row.metadata || {};
   const source = row.source || null;
+  const install = metadata.install || source?.install || {};
+  const hasInstallMetadata = Boolean(metadata.installKind || install.installKind || metadata.desktopSourceUrl || install.desktopSourceUrl || metadata.desktopInstallable !== undefined || install.desktopInstallable !== undefined);
+  const sourceRepositoryUrl = metadata.sourceRepositoryUrl || install.sourceRepositoryUrl || row.repository_url;
+  const desktopSourceUrl = metadata.desktopSourceUrl || install.desktopSourceUrl || (hasInstallMetadata ? '' : row.repository_url);
+  const desktopRef = metadata.desktopRef || install.desktopRef || metadata.defaultBranch || source?.defaultBranch || row.release_tag || '';
+  const desktopSparsePath = metadata.desktopSparsePath || install.desktopSparsePath || '';
   return {
     ...metadata,
     name: row.name,
@@ -68,6 +74,16 @@ function rowToPlugin(row) {
     defaultBranch: metadata.defaultBranch || source?.defaultBranch || row.release_tag,
     headSha: metadata.headSha || source?.headSha || null,
     repositoryTreeUrl: metadata.repositoryTreeUrl || source?.repositoryTreeUrl || null,
+    installKind: metadata.installKind || install.installKind || 'plugin-source',
+    sourceRepositoryUrl,
+    distributionRepositoryUrl: metadata.distributionRepositoryUrl || install.distributionRepositoryUrl || null,
+    desktopInstallable: Boolean(metadata.desktopInstallable ?? install.desktopInstallable ?? (!hasInstallMetadata && desktopSourceUrl)),
+    desktopSourceUrl,
+    desktopRef,
+    desktopSparsePath,
+    cliInstallCommand: metadata.cliInstallCommand || install.cliInstallCommand || '',
+    installWarnings: metadata.installWarnings || install.installWarnings || [],
+    marketplaceName: metadata.marketplaceName || install.marketplaceName || null,
     review: row.review,
     securityScan: row.security_scan,
     stateStatus: row.status,
