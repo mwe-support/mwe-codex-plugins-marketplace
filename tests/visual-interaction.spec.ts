@@ -161,6 +161,18 @@ test('theme, category filters, copy buttons, and routes remain responsive', asyn
   expect(longestTask).toBeLessThan(300);
 });
 
+test('reduced-motion keeps submit stages paced instead of jumping to extraction', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/share');
+  await page.getByLabel(/GitHub 仓库链接/).fill('https://github.com/upstash/context7');
+  await page.getByRole('button', { name: /开始检测/ }).click();
+  await page.waitForTimeout(250);
+  await expect(page.locator('.progress-rail')).toHaveAttribute('data-stage', 'received');
+  await expect(page.locator('.progress-step.active')).toContainText('接收链接');
+  await page.waitForTimeout(900);
+  await expect(page.locator('.progress-rail')).toHaveAttribute('data-stage', 'cloning');
+});
+
 test('submit flow shows five-step progress, duplicate recovery, and failed state', async ({ page }) => {
   await page.goto('/share');
   await page.getByLabel(/GitHub 仓库链接/).fill('not-a-url');

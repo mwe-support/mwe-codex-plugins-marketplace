@@ -316,8 +316,6 @@ function setSubmitStage(stage, status = "checking") {
     syncSubmitUi();
 }
 function stageAdvanceDelay(stage) {
-    if (prefersReducedMotion())
-        return 20;
     return stage === "received" ? submitReceivedMinimumMs : submitStageMinimumMs;
 }
 async function animateSubmitTo(stage, status) {
@@ -334,10 +332,6 @@ async function animateSubmitTo(stage, status) {
 async function playSubmitPrelude(runId, targetStage = "extracting") {
     clearSubmitProgressTimers();
     setSubmitStage("received");
-    if (prefersReducedMotion()) {
-        setSubmitStage(targetStage);
-        return;
-    }
     await wait(stageAdvanceDelay("received"));
     const targetIndex = detectionStages.indexOf(targetStage);
     for (let index = 1; index <= targetIndex; index += 1) {

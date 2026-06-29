@@ -436,7 +436,6 @@ function setSubmitStage(stage: DetectionStage, status: AppState["submitStatus"] 
 }
 
 function stageAdvanceDelay(stage: DetectionStage) {
-  if (prefersReducedMotion()) return 20;
   return stage === "received" ? submitReceivedMinimumMs : submitStageMinimumMs;
 }
 
@@ -455,10 +454,6 @@ async function animateSubmitTo(stage: DetectionStage, status: AppState["submitSt
 async function playSubmitPrelude(runId: number, targetStage: DetectionStage = "extracting") {
   clearSubmitProgressTimers();
   setSubmitStage("received");
-  if (prefersReducedMotion()) {
-    setSubmitStage(targetStage);
-    return;
-  }
   await wait(stageAdvanceDelay("received"));
   const targetIndex = detectionStages.indexOf(targetStage);
   for (let index = 1; index <= targetIndex; index += 1) {

@@ -280,7 +280,10 @@ input::placeholder, textarea::placeholder { color: var(--ps-soft); }
 @keyframes segmentLightB { 0% { left: -210px; opacity: 0; } 12% { opacity: .96; } 78% { opacity: .94; } 100% { left: calc(100% - 90px); opacity: 0; } }
 @keyframes segmentPointA { 0% { left: 0; opacity: 0; transform: translate(-50%, -50%) scale(.88); } 12% { opacity: 1; } 78% { opacity: 1; } 100% { left: 100%; opacity: 0; transform: translate(-50%, -50%) scale(1.04); } }
 @keyframes segmentPointB { 0% { left: 0; opacity: 0; transform: translate(-50%, -50%) scale(.88); } 12% { opacity: 1; } 78% { opacity: 1; } 100% { left: 100%; opacity: 0; transform: translate(-50%, -50%) scale(1.04); } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; scroll-behavior: auto !important; transition-duration: 1ms !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; }
+  .progress-light, .progress-light::before, .progress-light::after { animation: none !important; opacity: 0 !important; }
+}
 @media (max-width: 1180px) {
   .topbar { grid-template-columns: 1fr; justify-items: start; }
   .nav { justify-content: flex-start; }
