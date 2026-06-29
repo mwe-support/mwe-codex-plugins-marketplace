@@ -8,10 +8,22 @@ Create a persistent Cloudflare Tunnel in the Cloudflare dashboard and route the 
 http://mwe-codex-marketplace:80
 ```
 
-Start the optional tunnel service with a token without committing the token:
+Start the optional tunnel service with a token without committing the token. Either export it for the current shell:
 
 ```bash
 export CLOUDFLARE_TUNNEL_TOKEN='...'
+docker compose --profile tunnel up -d --build
+```
+
+Or put it in your local uncommitted `.env` file:
+
+```dotenv
+CLOUDFLARE_TUNNEL_TOKEN=...
+```
+
+Then start the profile:
+
+```bash
 docker compose --profile tunnel up -d --build
 ```
 

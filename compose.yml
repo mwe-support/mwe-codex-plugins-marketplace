@@ -50,7 +50,7 @@ services:
     depends_on:
       mwe-codex-marketplace:
         condition: service_healthy
-    command: tunnel --no-autoupdate run --token $$CLOUDFLARE_TUNNEL_TOKEN
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
 
 volumes:
   mwe-codex-marketplace-postgres:
