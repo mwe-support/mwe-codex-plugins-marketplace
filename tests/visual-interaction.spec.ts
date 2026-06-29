@@ -169,13 +169,15 @@ test('submit flow shows five-step progress, duplicate recovery, and failed state
   await expect(page.locator('.progress-step.failed')).toContainText('接收链接');
 
   await page.getByLabel(/GitHub 仓库链接/).fill('https://github.com/upstash/context7');
+  const successStartedAt = Date.now();
   await page.getByRole('button', { name: /开始检测/ }).click();
-  await expect(page.getByText('检测完成，市场已更新')).toBeVisible();
+  await expect(page.getByText('检测完成，市场已更新')).toBeVisible({ timeout: 10000 });
+  expect(Date.now() - successStartedAt).toBeGreaterThan(5000);
   await expect(page.locator('.progress-step').last()).toHaveClass(/passed|warning/);
 
   await page.getByLabel(/GitHub 仓库链接/).fill('https://github.com/upstash/context7');
   await page.getByRole('button', { name: /开始检测/ }).click();
-  await expect(page.getByLabel('提交插件仓库，自动检测并加入市场').getByText('这个仓库已经在市场中，已刷新检测状态。')).toBeVisible();
+  await expect(page.getByLabel('提交插件仓库，自动检测并加入市场').getByText('这个仓库已经在市场中，已刷新检测状态。')).toBeVisible({ timeout: 10000 });
 
   await page.getByLabel(/GitHub 仓库链接/).fill('https://github.com/example/broken-plugin');
   await page.getByRole('button', { name: /开始检测/ }).click();

@@ -422,6 +422,8 @@ async function loadMarket({ silent = false } = {}) {
 
 const detectionStages: DetectionStage[] = ["received", "cloning", "validating", "extracting", "completed"];
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const submitStageMinimumMs = 1600;
+const submitReceivedMinimumMs = 900;
 
 function setSubmitStage(stage: DetectionStage, status: AppState["submitStatus"] = "checking") {
   const stageChanged = stage !== state.submitStage;
@@ -433,9 +435,9 @@ function setSubmitStage(stage: DetectionStage, status: AppState["submitStatus"] 
   syncSubmitUi();
 }
 
-function stageAdvanceDelay(_stage: DetectionStage) {
+function stageAdvanceDelay(stage: DetectionStage) {
   if (prefersReducedMotion()) return 20;
-  return 1400;
+  return stage === "received" ? submitReceivedMinimumMs : submitStageMinimumMs;
 }
 
 async function animateSubmitTo(stage: DetectionStage, status: AppState["submitStatus"]) {
@@ -450,18 +452,21 @@ async function animateSubmitTo(stage: DetectionStage, status: AppState["submitSt
   setSubmitStage(stage, status);
 }
 
-function startSubmitProgress() {
+async function playSubmitPrelude(runId: number, targetStage: DetectionStage = "extracting") {
   clearSubmitProgressTimers();
   setSubmitStage("received");
   if (prefersReducedMotion()) {
-    setSubmitStage("extracting");
+    setSubmitStage(targetStage);
     return;
   }
-  submitProgressTimers = [
-    window.setTimeout(() => setSubmitStage("cloning"), 1400),
-    window.setTimeout(() => setSubmitStage("validating"), 2800),
-    window.setTimeout(() => setSubmitStage("extracting"), 4200),
-  ];
+  await wait(stageAdvanceDelay("received"));
+  const targetIndex = detectionStages.indexOf(targetStage);
+  for (let index = 1; index <= targetIndex; index += 1) {
+    if (runId !== submitRunId || state.submitStatus !== "checking") return;
+    const nextStage = detectionStages[index];
+    setSubmitStage(nextStage, "checking");
+    await wait(stageAdvanceDelay(nextStage));
+  }
 }
 
 function clearSubmitProgressTimers() {
@@ -488,7 +493,7 @@ async function submitRepository() {
 
   state.submitLoading = true;
   syncSubmitButton();
-  startSubmitProgress();
+  const progressPrelude = playSubmitPrelude(runId);
   addLog("submit", `开始检测 ${normalizeRepositoryUrl(repoUrl)}`, "info");
   try {
     const response = await fetch("/api/check", {
@@ -499,6 +504,8 @@ async function submitRepository() {
     const payload = await response.json();
     if (runId !== submitRunId) return;
     if (!response.ok) throw new Error(payload.error || "检测失败，请稍后重试。");
+    await progressPrelude;
+    if (runId !== submitRunId) return;
     await animateSubmitTo((payload.stage as DetectionStage) || "completed", "approved");
     if (runId !== submitRunId) return;
     state.submitMessage = payload.message || "检测通过，插件已加入市场。";
