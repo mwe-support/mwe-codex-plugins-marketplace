@@ -84,8 +84,12 @@ ghcr.io/mwe-support/mwe-codex-plugins-marketplace
 
 - `DATABASE_URL`：PostgreSQL 连接串。
 - `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD`：compose 内置 PostgreSQL 配置。
-- `SUBMISSION_RATE_LIMIT`：10 分钟内每个 IP 的提交次数，默认 `8`。
+- `SUBMISSION_RATE_LIMIT`：限流窗口内每个 IP 的提交次数，默认 `10`。
+- `SUBMISSION_RATE_WINDOW_MS`：提交限流窗口，默认 `60000`，即 1 分钟。
 - `PLUGIN_CLONE_TIMEOUT_MS`：单次仓库 clone 超时，默认 `45000`。
+- `GITHUB_PROXY_PREFIX`：GitHub 官方 clone 失败后的 fallback 前缀，默认 `https://gh-proxy.com/`；设置为 `none` 可禁用。
+- `GITHUB_HEALTH_REPOSITORY`：`/api/github-health` 默认探测仓库，默认 `https://github.com/upstash/context7`。
+- `GITHUB_HEALTH_TIMEOUT_MS`：GitHub 健康检查超时，默认 `10000`。
 - `MARKETPLACE_ADMIN_PASSWORD`：管理员删除插件的密码。
 - `ADMIN_PASSWORD`：兼容旧部署的管理员密码变量。
 - `CLOUDFLARE_TUNNEL_TOKEN`：可选 Cloudflare Tunnel token。
@@ -102,6 +106,10 @@ ghcr.io/mwe-support/mwe-codex-plugins-marketplace
 ### `GET /api/market`
 
 返回当前插件列表和最近检测记录。
+
+### `GET /api/github-health`
+
+只读 GitHub 访问健康检查，不写数据库，也不走提交限流。默认探测 `GITHUB_HEALTH_REPOSITORY`，也可传入 `repositoryUrl` 查询参数。
 
 ### `POST /api/check`
 

@@ -11,9 +11,12 @@ const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.PORT || 80);
 const ROOT = process.cwd();
 const MAX_BODY_BYTES = 64 * 1024;
-const RATE_WINDOW_MS = 10 * 60 * 1000;
-const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 8);
+const RATE_WINDOW_MS = Number(process.env.SUBMISSION_RATE_WINDOW_MS || 60_000);
+const RATE_LIMIT = Number(process.env.SUBMISSION_RATE_LIMIT || 10);
 const CLONE_TIMEOUT_MS = Number(process.env.PLUGIN_CLONE_TIMEOUT_MS || 45_000);
+const GITHUB_HEALTH_TIMEOUT_MS = Number(process.env.GITHUB_HEALTH_TIMEOUT_MS || 10_000);
+const GITHUB_HEALTH_REPOSITORY = process.env.GITHUB_HEALTH_REPOSITORY || 'https://github.com/upstash/context7';
+const GITHUB_PROXY_PREFIX = normalizeGithubProxyPrefix(process.env.GITHUB_PROXY_PREFIX || 'https://gh-proxy.com/');
 const MAX_WALK_FILES = Number(process.env.PLUGIN_WALK_FILE_LIMIT || 5000);
 const ADMIN_PASSWORD = process.env.MARKETPLACE_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || '';
 
@@ -48,6 +51,60 @@ function httpError(message, status = 400) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+
+function normalizeGithubProxyPrefix(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || /^(0|false|none|off)$/i.test(trimmed)) return '';
+  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
+}
+
+function proxiedGithubUrl(normalizedUrl) {
+  if (!GITHUB_PROXY_PREFIX) return '';
+  return `${GITHUB_PROXY_PREFIX}${normalizedUrl}`;
+}
+
+function githubUrlCandidates(normalizedUrl) {
+  return [...new Set([normalizedUrl, proxiedGithubUrl(normalizedUrl)].filter(Boolean))];
+}
+
+function gitSourceLabel(url, normalizedUrl) {
+  return url === normalizedUrl ? 'github' : 'github-proxy';
+}
+
+function gitFailureSummary(error) {
+  const message = String(error?.stderr || error?.stdout || error?.message || '').replace(/\s+/g, ' ').trim();
+  if (/timed out|timeout/i.test(message)) return 'timeout';
+  if (/could not resolve|name or service not known|dns/i.test(message)) return 'dns';
+  if (/connection reset|failed to connect|connection timed out|network is unreachable/i.test(message)) return 'network';
+  if (/repository not found|not found|authentication failed|403|401/i.test(message)) return 'unavailable';
+  return message.slice(0, 180) || 'unknown';
+}
+
+async function runGitRead(args, { timeout, normalizedUrl, beforeAttempt = null }) {
+  const attempts = [];
+  for (const candidateUrl of githubUrlCandidates(normalizedUrl)) {
+    if (beforeAttempt) await beforeAttempt(candidateUrl);
+    const startedAt = Date.now();
+    try {
+      const result = await execFileAsync('git', args(candidateUrl), {
+        timeout,
+        maxBuffer: 2 * 1024 * 1024,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      });
+      return { result, source: gitSourceLabel(candidateUrl, normalizedUrl), latencyMs: Date.now() - startedAt, attempts };
+    } catch (error) {
+      attempts.push({
+        source: gitSourceLabel(candidateUrl, normalizedUrl),
+        latencyMs: Date.now() - startedAt,
+        error: gitFailureSummary(error),
+      });
+    }
+  }
+  const error = httpError(attempts.some((item) => item.error === 'timeout') ? '读取仓库超时，请稍后重试。' : '无法读取这个公开仓库，请确认链接可访问。', 422);
+  error.gitAttempts = attempts;
+  throw error;
 }
 
 
@@ -220,16 +277,37 @@ async function cloneRepository(normalizedUrl) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mwe-codex-plugin-'));
   const repoPath = path.join(tempRoot, 'repo');
   try {
-    await execFileAsync('git', ['clone', '--depth=1', '--filter=blob:limit=1m', normalizedUrl, repoPath], {
+    const cloned = await runGitRead((candidateUrl) => ['clone', '--depth=1', '--filter=blob:limit=1m', candidateUrl, repoPath], {
       timeout: CLONE_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      normalizedUrl,
+      beforeAttempt: () => fs.rm(repoPath, { recursive: true, force: true }),
     });
-    return { tempRoot, repoPath };
+    if (cloned.source !== 'github') console.warn(`[github-clone:fallback] repo=${normalizedUrl} source=${cloned.source} latencyMs=${cloned.latencyMs}`);
+    return { tempRoot, repoPath, source: cloned.source };
   } catch (error) {
     await fs.rm(tempRoot, { recursive: true, force: true });
-    const reason = /timed out/i.test(error.message || '') ? '读取仓库超时，请稍后重试。' : '无法读取这个公开仓库，请确认链接可访问。';
-    throw httpError(reason, 422);
+    if (error.gitAttempts) console.warn(`[github-clone:failed] repo=${normalizedUrl} attempts=${JSON.stringify(error.gitAttempts)}`);
+    throw error;
+  }
+}
+
+async function checkGithubRead(repositoryUrl = GITHUB_HEALTH_REPOSITORY) {
+  const checkedAt = new Date().toISOString();
+  let parsed;
+  try {
+    parsed = parseGithubRepositoryUrl(repositoryUrl);
+  } catch (error) {
+    return { ok: false, status: responseStatusForError(error), repositoryUrl: String(repositoryUrl || ''), method: 'git ls-remote', checkedAt, error: error.message || 'GitHub 仓库 URL 不正确。', attempts: [] };
+  }
+  try {
+    const probe = await runGitRead((candidateUrl) => ['ls-remote', candidateUrl, 'HEAD'], {
+      timeout: GITHUB_HEALTH_TIMEOUT_MS,
+      normalizedUrl: parsed.normalizedUrl,
+    });
+    const head = String(probe.result.stdout || '').trim().split(/\s+/)[0] || null;
+    return { ok: true, repositoryUrl: parsed.normalizedUrl, source: probe.source, method: 'git ls-remote', latencyMs: probe.latencyMs, checkedAt, head, attempts: probe.attempts };
+  } catch (error) {
+    return { ok: false, status: 503, repositoryUrl: parsed.normalizedUrl, method: 'git ls-remote', checkedAt, error: error.message || 'GitHub 访问检测失败。', attempts: error.gitAttempts || [] };
   }
 }
 
@@ -552,7 +630,7 @@ async function serveStatic(request, response) {
   }
 }
 
-const server = http.createServer((request, response) => {
+const server = http.createServer(async (request, response) => {
   const pathname = request.url?.split('?')[0] || '/';
   if (pathname === '/api/health') {
     dbAvailable()
@@ -562,6 +640,12 @@ const server = http.createServer((request, response) => {
   }
   if (pathname === '/api/client-log') {
     handleClientLog(request, response).catch((error) => sendJson(response, 400, { error: error.message || 'client log ignored' }));
+    return;
+  }
+  if (request.method === 'GET' && pathname === '/api/github-health') {
+    const url = new URL(request.url || '/', 'http://localhost');
+    const result = await checkGithubRead(url.searchParams.get('repositoryUrl') || undefined);
+    sendJson(response, result.ok ? 200 : result.status || 503, result);
     return;
   }
   if (pathname === '/api/market') {
